@@ -9,6 +9,7 @@ This repository is also a plugin marketplace, so you can install any mod with on
 | Mod | What it does |
 | --- | --- |
 | [crab-crew](plugins/crab-crew) | A crew panel for subagents. Each agent type is played by a crab character with its own role, look and lines, animated by its status and progress. Works with the standard agents; no skills needed. |
+| [obsidian-cli-mcp-tool-stats](plugins/obsidian-cli-mcp-tool-stats) | Usage stats for the [obsidian-cli-mcp](https://github.com/marwansaab/obsidian-cli-mcp) server: calls, estimated tokens, errors and latency per tool, with hints on heavy results, repeat calls, error patterns and unused schemas. Kept across sessions. |
 
 ## Install
 

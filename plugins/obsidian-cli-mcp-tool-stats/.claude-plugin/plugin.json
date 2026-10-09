@@ -1,0 +1,48 @@
+{
+  "name": "obsidian-cli-mcp-tool-stats",
+  "version": "0.1.0",
+  "description": "Usage stats for the obsidian-cli-mcp server (/cli-mcp-tool-stats): calls, estimated tokens, errors and latency per tool, with hints on heavy results, repeat calls, error patterns and unused schemas, kept across sessions.",
+  "author": {
+    "name": "Marwan Saab",
+    "url": "https://github.com/marwansaab"
+  },
+  "homepage": "https://github.com/marwansaab/Claude-Mods/tree/main/plugins/obsidian-cli-mcp-tool-stats",
+  "repository": "https://github.com/marwansaab/Claude-Mods",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "obsidian",
+    "tools",
+    "usage",
+    "tokens",
+    "errors",
+    "stats"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "server": {
+      "type": "string",
+      "title": "MCP server name",
+      "description": "The server whose tools are tracked, as /mcp lists it",
+      "default": "obsidian-cli-mcp"
+    },
+    "heavyResultTokens": {
+      "type": "number",
+      "title": "Heavy result threshold (tokens)",
+      "description": "A tool whose results average more than this is flagged as heavy",
+      "default": 2000
+    },
+    "slowCallMs": {
+      "type": "number",
+      "title": "Slow call threshold (ms)",
+      "description": "A tool whose calls average longer than this is flagged as slow",
+      "default": 3000
+    },
+    "keepHistory": {
+      "type": "boolean",
+      "title": "Keep history across sessions",
+      "description": "Saves per-tool totals and error patterns so unused tools and recurring errors show up over time",
+      "default": true
+    }
+  }
+}
