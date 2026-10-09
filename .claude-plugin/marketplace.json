@@ -1,0 +1,17 @@
+{
+  "name": "claude-mods",
+  "owner": {
+    "name": "Marwan Saab",
+    "url": "https://github.com/marwansaab"
+  },
+  "metadata": {
+    "description": "Mods for Claude Code: panes, bands and hooks written as plugins of function hooks."
+  },
+  "plugins": [
+    {
+      "name": "crab-crew",
+      "source": "./plugins/crab-crew",
+      "description": "A crew panel for standard subagents: each agent type is a crab character with its own role, look and lines, animated by its status and progress."
+    }
+  ]
+}

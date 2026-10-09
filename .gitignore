@@ -1,0 +1,8 @@
+# Written by Claude Code each time it loads a mod from disk; regenerated, never edited.
+plugins/*/.claude-plugin/types/
+
+# Local tooling
+node_modules/
+*.log
+.DS_Store
+Thumbs.db

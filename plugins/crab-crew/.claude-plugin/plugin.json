@@ -1,0 +1,35 @@
+{
+  "name": "crab-crew",
+  "version": "0.1.0",
+  "description": "A crew panel for standard subagents (/crew): each agent type is a crab character with its own role, look and lines, animated by its status and progress.",
+  "author": {
+    "name": "Marwan Saab",
+    "url": "https://github.com/marwansaab"
+  },
+  "homepage": "https://github.com/marwansaab/Claude-Mods/tree/main/plugins/crab-crew",
+  "repository": "https://github.com/marwansaab/Claude-Mods",
+  "license": "MIT",
+  "keywords": [
+    "subagents",
+    "agents",
+    "panel",
+    "progress",
+    "crab",
+    "animation"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoOpen": {
+      "type": "boolean",
+      "title": "Open the crew panel on the first dispatch",
+      "description": "Opens the panel the first time a subagent starts in a session",
+      "default": true
+    },
+    "showQuips": {
+      "type": "boolean",
+      "title": "Crab speech bubbles",
+      "description": "Each crab says what it is up to, in character",
+      "default": true
+    }
+  }
+}
