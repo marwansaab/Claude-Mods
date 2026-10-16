@@ -23,7 +23,7 @@ There are no HTML pages to build, no browser to open and no notes to export and 
   - **Quick answer** is written in the panel at once, from the card and the rest of the review.
   - **Ask Claude in the session** sends the question to the conversation. Claude researches it with everything the session has (the web, your project, its notes) and puts the answer back on the card, with its sources.
 - **One card at a time.** A review opens on a numbered stepper (a tick for each card answered), *Previous* and *Next* around a jump list, and the current card in a frame coloured by its type: what the card says, its evidence, then *Your answer*. Submitting sits at the bottom.
-- **Copy.** Each card and each answer has a *Copy* button that puts it on your clipboard as Markdown.
+- **Copy.** On the desktop, card text can be selected and copied like any text; a link in it shows its address in brackets so you can copy that too. Lists made mostly of links (evidence, sources) stay clickable instead. Each card and each answer also has a *Copy* button that puts the whole thing on your clipboard as Markdown.
 - **Saved as you go.** Every answer is written to `draft.json` straight away. Close the panel, or end the session, and carry on later.
 - **Submit, and Claude applies it.** Submitting writes `outcome.md` and `outcome.json`, moves the review to `reviewed/`, and queues a prompt that asks Claude to apply the outcome in each record's real home and to confirm with you before writing.
 
@@ -56,6 +56,7 @@ To start, ask Claude something like *"put the open questions for this initiative
 | Open the desk when Claude publishes a review | on | Opens the panel on the new review, unless you are in the middle of another one |
 | Hand submitted reviews to Claude | on | On submit, queues a prompt asking Claude to apply the outcome |
 | Model for quick answers | empty (the session's model) | A model alias or id for the panel's quick answers, for example `haiku` |
+| Selectable text | on | On the desktop, draws card text so it can be selected; off draws it as the app's own text, with every link clickable but nothing selectable |
 
 ## How it works
 
@@ -104,7 +105,8 @@ To start, ask Claude something like *"put the open questions for this initiative
 
 - **Desktop and terminal.** Animated scenes draw on the desktop. The terminal shows them as text, and the mobile app, which has no text fields yet, shows reviews without the answer boxes.
 - **Quick answers know only the review.** They are focused on the open card and cannot search the web or read your project; use *Ask Claude in the session* for that. A session answer arrives once Claude has finished its turn.
-- **Text in the panel cannot be selected.** The app draws the panel; use the *Copy* buttons. In the desktop app, copying goes through the system clipboard command (PowerShell `Set-Clipboard` on Windows, `pbcopy` on macOS, `wl-copy` or `xclip` on Linux).
+- **Selectable text is drawn by the mod.** The app's own text elements cannot be selected, so on the desktop card text is drawn as SVG text. It wraps by an estimate of letter widths, keeps simple Markdown (bold, italic, code, lists, quotes, headings), and links in it are not clickable: their addresses show in brackets. Blocks that are mostly links stay the app's own Markdown, clickable but not selectable. Turn *Selectable text* off to draw everything the app's way.
+- **The Copy buttons use the system clipboard on the desktop**, as the desktop app has no clipboard path for plugins yet: PowerShell `Set-Clipboard` on Windows, `pbcopy` on macOS, `wl-copy` or `xclip` on Linux.
 - **Text you type is saved when you press Enter or move on.** Typing and then closing the window straight away can lose the last field.
 - **Reviewed items are read-only.** To review something again, ask Claude to publish it again; the new review is filed separately.
 - **The function-hook plugin API is early access** and may change between Claude Code releases. Built and tested against Claude Code 2.1.296.
