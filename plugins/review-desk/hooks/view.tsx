@@ -6,6 +6,7 @@ import type { Elements, RenderElement } from 'claude-code'
 import type { Ask, Card, CardType, Claim, DeskView, OpenPack, PackSummary, Response } from '../types'
 import { TYPE_LABEL, cardOutcome, cardState, cardText, partKey, rowIsOn } from './pack'
 import type { CardState } from './pack'
+import { markdownSvg } from './mdsvg'
 import { deskHeaderSvg, ringSvg, sceneSvg, sceneText, stepperSvg } from './scenes'
 
 type UI = Elements['terminal'] | Elements['desktop'] | Elements['vscode'] | Elements['mobile']
@@ -42,6 +43,8 @@ export type Ctx = {
   open: OpenPack | null
   act: Actions
   folder: string
+  /** Draw text blocks as interactive SVG, whose text the desktop lets you select and copy. */
+  selectable: boolean
 }
 
 const GLYPH: Record<CardState, string> = { done: '●', partial: '◐', open: '○' }
@@ -61,9 +64,37 @@ const bar = (done: number, total: number, width = 10) => {
   return '▰'.repeat(n) + '▱'.repeat(width - n)
 }
 
-const md = (ui: UI, text: string | undefined, key?: string, dim?: boolean): RenderElement | null => {
+/** How text blocks are drawn in the current drawing, by its element table (one per render). */
+const drawing = new WeakMap<object, { width: number; isSvg: boolean }>()
+const drawText = (ctx: Ctx) => drawing.set(ctx.ui, { width: Math.max(240, ctx.width - 40), isSvg: ctx.selectable && ctx.isDesktop && 'Svg' in ctx.ui })
+
+const LINK = /\[[^\]]+\]\([^)\s]+\)|https?:\/\/\S+/g
+
+/**
+ * Whether a block is mostly links (a source list, evidence): those stay the surface's own Markdown,
+ * so the links open; the Copy button copies them. Ordinary text with a link or two is drawn
+ * selectable, each link followed by its address in brackets.
+ */
+export function isLinkHeavy(text: string): boolean {
+  const links = text.match(LINK) ?? []
+  if (links.length >= 3) return true
+  const linked = links.reduce((n, l) => n + l.length, 0)
+  return links.length > 0 && linked / Math.max(1, text.length) > 0.4
+}
+
+/**
+ * A block of Markdown. On the desktop it is drawn as SVG text, which can be selected and copied,
+ * unless its links must stay clickable (`links: 'open'`, or a block that is mostly links).
+ */
+const md = (ui: UI, text: string | undefined, key?: string, dim?: boolean, links?: 'open'): RenderElement | null => {
+  if (!text?.trim()) return null
+  const how = drawing.get(ui)
+  if (how?.isSvg && 'Svg' in ui && links !== 'open' && !isLinkHeavy(text)) {
+    const d = markdownSvg(text, how.width, !!dim)
+    return <ui.Svg key={key} source={d.svg} alt={d.alt} width={how.width} height={d.height} isInteractive />
+  }
   const { Markdown } = ui
-  return text?.trim() ? <Markdown key={key} text={text} dimColor={dim} /> : null
+  return <Markdown key={key} text={text} dimColor={dim} />
 }
 
 /** A small capitalised heading inside a card: what this part of it is. */
@@ -97,6 +128,7 @@ function field(ctx: Ctx, key: string, caption: string, value: string | undefined
 // ---------- the list ----------
 
 export function homeView(ctx: Ctx): RenderElement {
+  drawText(ctx)
   const { ui, packs, view, act } = ctx
   const { Box, Text, Button } = ui
   const pending = packs.filter(p => p.status === 'pending')
@@ -180,7 +212,7 @@ function evidence(ui: UI, ids: string[] | undefined, claims: Claim[] | undefined
   return (
     <Box key={key} flexDirection="column">
       {label(ui, 'Evidence', `${key}-h`)}
-      {md(ui, text, `${key}-b`, true)}
+      {md(ui, text, `${key}-b`, true, 'open')}
     </Box>
   )
 }
@@ -515,7 +547,7 @@ function exchange(ctx: Ctx, a: Ask): RenderElement {
               Thinking…
             </Text>
           )}
-          {sources && md(ui, `**Sources**\n\n${sources}`, `src-${a.id}`, true)}
+          {sources && md(ui, `**Sources**\n\n${sources}`, `src-${a.id}`, true, 'open')}
         </Box>
       </Box>
     </Box>
@@ -569,6 +601,7 @@ function askBlock(ctx: Ctx, card: Card): RenderElement {
 // ---------- one review ----------
 
 export function packView(ctx: Ctx): RenderElement {
+  drawText(ctx)
   const { ui, open, view, act } = ctx
   const { Box, Text, Button } = ui
   if (!open) {

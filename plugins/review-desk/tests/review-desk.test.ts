@@ -4,6 +4,8 @@ import type { On } from 'claude-code'
 import type { Pack } from '../types'
 import { cardState, cleanPack, emptyDraft, handOffPrompt, outcomeMarkdown, packDigest } from '../hooks/pack'
 import { sceneSvg, sceneText, wrap } from '../hooks/scenes'
+import { markdownSvg } from '../hooks/mdsvg'
+import { isLinkHeavy } from '../hooks/view'
 import type { Scene } from '../types'
 
 const AT = '2026-10-16T09:00:00.000Z'
@@ -105,6 +107,38 @@ describe('progress and outcome', () => {
     const digest = packDigest(pack, pack.cards[0])
     expect(digest).toMatch(/Should players be able to report an ad/)
     expect(digest).toMatch(/C1 \[B\]/)
+  })
+})
+
+describe('selectable text', () => {
+  test('ordinary text keeps a link as its words plus the address in brackets', async () => {
+    const d = markdownSvg('Read the [store policy](https://example.com/policy) first.', 400)
+    expect(d.alt).toBe('Read the store policy (https://example.com/policy) first.')
+    expect(d.svg).toMatch(/store policy/)
+    expect(d.svg).toMatch(/\(https:\/\/example\.com\/policy\)/)
+    expect(d.svg).not.toMatch(/<a /)
+  })
+
+  test('lists, quotes and bold survive; markup is escaped', async () => {
+    const d = markdownSvg('**Bold** <b>tag</b>\n\n- one\n- two\n\n> quoted', 400)
+    expect(d.svg).toMatch(/class="b"/)
+    expect(d.svg).toMatch(/&lt;b&gt;tag&lt;\/b&gt;/)
+    expect(d.alt).toMatch(/• one/)
+    expect(d.alt).toMatch(/quoted/)
+  })
+
+  test('long text wraps inside the width and grows taller', async () => {
+    const long = 'word '.repeat(200)
+    const narrow = markdownSvg(long, 300)
+    const wide = markdownSvg(long, 900)
+    expect(narrow.height).toBeGreaterThan(wide.height)
+  })
+
+  test('blocks that are mostly links stay clickable; prose with a link does not', async () => {
+    expect(isLinkHeavy('- [A](https://a.example)\n- [B](https://b.example)\n- [C](https://c.example)')).toBe(true)
+    expect(isLinkHeavy('[Store policy](https://example.com/policy)')).toBe(true)
+    expect(isLinkHeavy('Players quit early, as the [report](https://example.com/r) found over a long study of many games.')).toBe(false)
+    expect(isLinkHeavy('No links at all.')).toBe(false)
   })
 })
 
@@ -306,7 +340,7 @@ describe('the desk', () => {
       expect(await pane.find({ key: 'verb-P1-go' })).toBeDefined()
 
       await pane.select({ key: 'jump-card', value: '5' })
-      expect(await shows(pane, /Your call:\*\* Is the greeting right\?/)).toBe(true)
+      expect(await shows(pane, /Your call:(\*\*)? Is the greeting right\?/)).toBe(true)
       await pane.press({ key: 'part-done-R1' })
       if (surface === 'terminal') {
         expect(await shows(pane, /Outro/)).toBe(true)
@@ -359,6 +393,25 @@ describe('the desk', () => {
     expect(world.clipboard.at(-1)).toMatch(/\*\*A:\*\* Yes: several store policies/)
     expect(world.clipboard.at(-1)).toMatch(/https:\/\/example.com\/policy/)
     await pane.unmount()
+  })
+
+  test('on the desktop, prose is selectable text and evidence keeps clickable links', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    memoryWorld(on)
+    await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_8', ...SAMPLE } as never)
+    const desk = await $.ui.mount({ plugin: 'review-desk', surface: 'desktop', ...PANE })
+    // An Svg carries no key in the drawing: find the question by its alt text.
+    const prompt = (await desk.findAll({ type: 'Svg' })).find(f => /report an ad/.test(String(f.props.alt)))
+    expect(prompt).toBeDefined()
+    expect(prompt?.props.isInteractive).toBe(true)
+    const evidence = await desk.find({ key: 'qe-Q-13-b' })
+    expect(evidence?.type).toBe('Markdown')
+    expect(evidence?.text).toMatch(/\(https:\/\/example\.com\/report\)/)
+    await desk.unmount()
+    // The terminal keeps its own Markdown throughout.
+    const term = await $.ui.mount({ plugin: 'review-desk', surface: 'terminal', ...PANE })
+    expect((await term.find({ key: 'q-Q-13' }))?.type).toBe('Markdown')
+    await term.unmount()
   })
 
   test('a view saved by an older version still draws', async ($, on) => {

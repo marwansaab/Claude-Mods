@@ -52,7 +52,7 @@ function viewOf(v: Partial<DeskView> | undefined): DeskView {
 }
 
 /** The person's settings: set by `register` on every load, read by the functions below. */
-const cfg = { folder: 'Reviews', autoOpen: true, handOff: true, askModel: '' }
+const cfg = { folder: 'Reviews', autoOpen: true, handOff: true, askModel: '', selectableText: true }
 
 /** The desk observes and stores; nothing it does may fail a tool call, a command or a turn. */
 async function safely<T>(work: () => Promise<T>): Promise<T | undefined> {
@@ -574,6 +574,7 @@ export const register: Register = (on, options) => {
   cfg.autoOpen = options.autoOpen !== false
   cfg.handOff = options.handOff !== false
   cfg.askModel = typeof options.askModel === 'string' ? options.askModel.trim() : ''
+  cfg.selectableText = options.selectableText !== false
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -610,6 +611,7 @@ export const register: Register = (on, options) => {
       open: v.openId ? await read($, open) : null,
       act: actionsFor($),
       folder: cfg.folder,
+      selectable: cfg.selectableText,
     }
     try {
       return v.openId ? packView(ctx) : homeView(ctx)
