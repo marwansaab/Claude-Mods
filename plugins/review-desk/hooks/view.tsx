@@ -437,7 +437,7 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
             key={`jump-${card.id}`}
             label="Section"
             value={String(at)}
-            options={card.sections.map((x, i) => ({ value: String(i), label: `${draft.responses[partKey(card.id, x.id)]?.isDone ? '✓' : '·'} ${i + 1}. ${x.title}` }))}
+            options={card.sections.map((x, i) => ({ value: String(i), label: `${i + 1}. ${x.title}${draft.responses[partKey(card.id, x.id)]?.isDone ? '  ✓' : ''}` }))}
             onSelect={v => ctx.act.goPart(card.id, Number(v))}
           />
         ) : null
@@ -465,43 +465,79 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
 /** Questions belong to the card they were asked on (older ones are matched by the card's title). */
 export const asksOf = (asks: Ask[], card: Card) => asks.filter(a => (a.card ? a.card === card.id : a.about === card.title || a.about?.startsWith(`${card.title}: `)))
 
+const ASK_COLOR = '#29B6F6'
+const ANSWER_COLOR = '#66BB6A'
+const clock = (iso: string) => iso.slice(11, 16)
+
+/** One question and its answer: the question on a blue chip, the answer on a green one, indented below. */
+function exchange(ui: UI, a: Ask): RenderElement {
+  const { Box, Text } = ui
+  return (
+    <Box key={`ask-${a.id}`} flexDirection="column" gap={1}>
+      <Box flexDirection="column">
+        <Text>
+          <Text backgroundColor={ASK_COLOR} color="#000000" bold>
+            {' YOU ASKED '}
+          </Text>
+          <Text dimColor> {clock(a.at)}</Text>
+        </Text>
+        <Box paddingLeft={2}>
+          <Text bold>{a.question}</Text>
+        </Box>
+      </Box>
+      <Box flexDirection="column">
+        <Text>
+          <Text backgroundColor={a.isError ? '#8D8B85' : ANSWER_COLOR} color="#000000" bold>
+            {a.via === 'session' ? ' SENT TO CLAUDE ' : ' ANSWER '}
+          </Text>
+          <Text dimColor>{a.via === 'session' ? ' in the conversation' : ' quick answer from this review'}</Text>
+        </Text>
+        <Box paddingLeft={2} flexDirection="column">
+          {a.via === 'session' ? (
+            <Text dimColor italic>
+              Claude answers in the conversation.
+            </Text>
+          ) : a.answer ? (
+            md(ui, a.answer, `ans-${a.id}`, !!a.isError)
+          ) : (
+            <Text dimColor italic>
+              Thinking…
+            </Text>
+          )}
+        </Box>
+      </Box>
+    </Box>
+  )
+}
+
+/** The card's own questions, in a frame of their own under the card: the thread, then the field to ask. */
 function askBlock(ctx: Ctx, card: Card): RenderElement {
   const { ui, open, view, act } = ctx
   const { Box, Text, Button } = ui
   const asks = asksOf(open!.draft.asks, card)
   const isOpen = view.askOpen[card.id] ?? false
   const shown = view.showAllAsks ? asks : asks.slice(-3)
-  const isThinking = view.askingCard === card.id
   return (
-    <Box key={`ask-${card.id}`} flexDirection="column" gap={1}>
+    <Box key={`ask-${card.id}`} flexDirection="column" gap={1} borderStyle="round" borderColor={isOpen ? ASK_COLOR : undefined} borderDimColor={!isOpen} paddingX={1}>
       <Button
         key={`ask-toggle-${card.id}`}
         plain
-        dimColor={!isOpen}
-        label={`${isOpen ? '▾' : '▸'} Ask about this card${asks.length ? ` · ${asks.length} asked` : ''}`}
         onPress={() => act.toggleAsk(card.id)}
-      />
+      >
+        {isOpen ? '▾ ' : '▸ '}
+        <Text color={ASK_COLOR} bold>
+          ASK ABOUT THIS CARD
+        </Text>
+        <Text dimColor>{asks.length ? `  ·  ${asks.length} asked` : '  ·  questions and answers stay with this card'}</Text>
+      </Button>
       {isOpen && asks.length > shown.length && <Button key={`ask-all-${card.id}`} plain dimColor label={`Show all ${asks.length} questions`} onPress={act.showAllAsks} />}
-      {isOpen &&
-        shown.map(a => (
-          <Box key={`ask-${a.id}`} flexDirection="column" paddingLeft={2}>
-            <Text>
-              <Text bold>You: </Text>
-              {a.question}
-            </Text>
-            {a.via === 'session'
-              ? <Text dimColor italic>Sent to the session; Claude answers in the conversation.</Text>
-              : a.answer
-                ? md(ui, a.answer, `ans-${a.id}`, !!a.isError)
-                : <Text dimColor italic>Thinking…</Text>}
-          </Box>
-        ))}
-      {isOpen && isThinking && !shown.some(a => !a.answer && a.via === 'quick') && <Text dimColor italic>Thinking…</Text>}
+      {isOpen && shown.map(a => exchange(ui, a))}
       {isOpen && 'Input' in ui && (
-        <Box flexDirection="column" paddingLeft={2}>
-          {field(ctx, `ask:${card.id}`, 'Question', '', 'about this card · Enter for a quick answer', 'ask')}
+        <Box flexDirection="column">
+          {/* Keyed by the count asked: each question asked draws a fresh, empty field. */}
+          {field(ctx, `ask:${card.id}#${asks.length}`, 'New question', '', 'type it here · Enter for a quick answer', 'ask')}
           <Box flexDirection="row" gap={1} flexWrap="wrap">
-            <Button key={`ask-quick-${card.id}`} plain label="Quick answer" onPress={() => act.askTyped('quick')} />
+            <Button key={`ask-quick-${card.id}`} label="Quick answer" onPress={() => act.askTyped('quick')} />
             <Button key={`ask-session-${card.id}`} plain dimColor label="Ask Claude in the session" onPress={() => act.askTyped('session')} />
           </Box>
           <Text dimColor>Quick answers come from this review only; Claude in the session can read your project.</Text>
@@ -580,7 +616,7 @@ export function packView(ctx: Ctx): RenderElement {
       <ui.Select
         key="jump-card"
         value={String(at)}
-        options={pack.cards.map((c, i) => ({ value: String(i), label: `${GLYPH[states[i] ?? 'open']} ${i + 1}. ${c.title}` }))}
+        options={pack.cards.map((c, i) => ({ value: String(i), label: `${i + 1}. ${c.title}` }))}
         onSelect={v => act.goCard(Number(v))}
       />
     ) : null
@@ -588,9 +624,12 @@ export function packView(ctx: Ctx): RenderElement {
     <Box key="nav" flexDirection="column">
       {stepper}
       <Box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
-        <Button key="card-prev" label="‹" dimColor={at === 0} onPress={() => act.goCard(Math.max(0, at - 1))} />
-        {jump}
-        <Button key="card-next" label="›" dimColor={at >= n - 1} onPress={() => act.goCard(Math.min(n - 1, at + 1))} />
+        <Button key="card-prev" label="‹ Previous" dimColor={at === 0} onPress={() => act.goCard(Math.max(0, at - 1))} />
+        {/* The list takes every column the two buttons leave. */}
+        <Box flexGrow={1} flexShrink={1} flexDirection="column">
+          {jump}
+        </Box>
+        <Button key="card-next" label="Next ›" variant={at < n - 1 ? 'primary' : 'secondary'} dimColor={at >= n - 1} onPress={() => act.goCard(Math.min(n - 1, at + 1))} />
       </Box>
     </Box>
   )
@@ -628,7 +667,6 @@ export function packView(ctx: Ctx): RenderElement {
           {response}
         </Box>
       )}
-      {askBlock(ctx, card)}
     </Box>
   )
 
@@ -665,6 +703,7 @@ export function packView(ctx: Ctx): RenderElement {
       {about}
       {nav}
       {framed}
+      {askBlock(ctx, card)}
       {footer}
     </Box>
   )

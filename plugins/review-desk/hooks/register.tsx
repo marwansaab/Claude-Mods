@@ -40,6 +40,9 @@ const open = atom({ plugin: 'review-desk', key: 'open' } as const, null as OpenP
 const typing = atom({ plugin: 'review-desk', key: 'typing' } as const, {} as Record<string, string>)
 const rootRef = atom({ plugin: 'review-desk', key: 'root' } as const, '')
 
+/** A field's address less its redraw counter (`ask:Q-1#2` is the question field of card Q-1). */
+const fieldKey = (key: string) => key.replace(/#\d+$/, '')
+
 /** The view as stored, with any field an older version of the mod did not keep filled in. */
 function viewOf(v: Partial<DeskView> | undefined): DeskView {
   return { ...START_VIEW, ...v, part: v?.part ?? {}, askOpen: v?.askOpen ?? {} }
@@ -384,8 +387,8 @@ function actionsFor($: EngineInterface): Actions {
     goPart: (cardId, n) => run(() => moveTo($, x => ({ ...x, part: { ...x.part, [cardId]: Math.max(0, n) } }))),
     respond: (key, patch) => run(() => respond($, key, patch)),
     toggleRow: (cardId, rowId) => run(() => toggleRow($, cardId, rowId)),
-    type: (key, text) => run(() => update($, typing, t => ({ ...t, [key]: text }))),
-    commit: (key, text) => run(() => commitField($, key, text)),
+    type: (key, text) => run(() => update($, typing, t => ({ ...t, [fieldKey(key)]: text }))),
+    commit: (key, text) => run(() => commitField($, fieldKey(key), text)),
     toggleSummary: () => run(() => update($, view, x => ({ ...x, isSummaryOpen: !x.isSummaryOpen }))),
     toggleAsk: cardId => run(() => update($, view, x => ({ ...x, askOpen: { ...(x.askOpen ?? {}), [cardId]: !(x.askOpen ?? {})[cardId] } }))),
     askTyped: via => run(() => askTyped($, via)),

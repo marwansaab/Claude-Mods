@@ -232,10 +232,13 @@ describe('the desk', () => {
 
     // A quick question is answered in the pane from the review.
     // Questions belong to the card: its Ask section opens, answers, and stays with that card.
-    expect(await pane.find({ key: 'ask:ADR-1' })).toBeUndefined()
+    expect(await pane.find({ key: 'ask:ADR-1#0' })).toBeUndefined()
     await pane.press({ key: 'ask-toggle-ADR-1' })
-    await pane.input({ key: 'ask:ADR-1', text: 'Why one slot?' })
+    await pane.input({ key: 'ask:ADR-1#0', text: 'Why one slot?' })
     expect(await shows(pane, /Because the report says so/)).toBe(true)
+    // Asked, the question field is drawn afresh and empty.
+    expect(await pane.find({ key: 'ask:ADR-1#0' })).toBeUndefined()
+    expect((await pane.find({ key: 'ask:ADR-1#1' }))?.text ?? '').toBe('')
     expect(await shows(pane, /1 asked/)).toBe(true)
     await pane.press({ key: 'card-prev' })
     expect(await shows(pane, /Why one slot\?/)).toBe(false)
@@ -324,7 +327,7 @@ describe('the desk', () => {
     for (const surface of ['terminal', 'desktop'] as const) {
       const pane = await $.ui.mount({ plugin: 'review-desk', surface, ...PANE })
       expect(await shows(pane, /Report an inappropriate ad/)).toBe(true)
-      expect(await shows(pane, /Ask about this card/)).toBe(true)
+      expect(await shows(pane, /ask about this card/i)).toBe(true)
       await pane.unmount()
     }
   })
