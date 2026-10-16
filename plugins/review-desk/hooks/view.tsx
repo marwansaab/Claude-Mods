@@ -4,7 +4,7 @@
 import type { Elements, RenderElement } from 'claude-code'
 
 import type { Ask, Card, CardType, Claim, DeskView, OpenPack, PackSummary, Response } from '../types'
-import { TYPE_LABEL, cardOutcome, cardState, partKey, rowIsOn } from './pack'
+import { TYPE_LABEL, cardOutcome, cardState, cardText, partKey, rowIsOn } from './pack'
 import type { CardState } from './pack'
 import { deskHeaderSvg, ringSvg, sceneSvg, sceneText, stepperSvg } from './scenes'
 
@@ -29,6 +29,8 @@ export type Actions = {
   submit: () => void
   confirm: (isOn: boolean) => void
   resend: () => void
+  /** Puts text on the clipboard of the surface the press came from. */
+  copy: (text: string, surface: string) => void
 }
 
 export type Ctx = {
@@ -470,32 +472,41 @@ const ANSWER_COLOR = '#66BB6A'
 const clock = (iso: string) => iso.slice(11, 16)
 
 /** One question and its answer: the question on a blue chip, the answer on a green one, indented below. */
-function exchange(ui: UI, a: Ask): RenderElement {
-  const { Box, Text } = ui
+function exchange(ctx: Ctx, a: Ask): RenderElement {
+  const { ui, act } = ctx
+  const { Box, Text, Button } = ui
+  const isSession = a.via === 'session'
+  const isWaiting = isSession && !a.answer
+  const sources = (a.sources ?? []).map(x => `- ${x.url ? `[${x.title}](${x.url})` : x.title}`).join('\n')
   return (
     <Box key={`ask-${a.id}`} flexDirection="column" gap={1}>
       <Box flexDirection="column">
-        <Text>
-          <Text backgroundColor={ASK_COLOR} color="#000000" bold>
-            {' YOU ASKED '}
+        <Box flexDirection="row" justifyContent="space-between">
+          <Text>
+            <Text backgroundColor={ASK_COLOR} color="#000000" bold>
+              {' YOU ASKED '}
+            </Text>
+            <Text dimColor> {clock(a.at)}</Text>
           </Text>
-          <Text dimColor> {clock(a.at)}</Text>
-        </Text>
+          {a.answer && <Button key={`copy-ask-${a.id}`} plain dimColor label="⧉ Copy" onPress={p => act.copy(askText(a), p.surface)} />}
+        </Box>
         <Box paddingLeft={2}>
           <Text bold>{a.question}</Text>
         </Box>
       </Box>
       <Box flexDirection="column">
         <Text>
-          <Text backgroundColor={a.isError ? '#8D8B85' : ANSWER_COLOR} color="#000000" bold>
-            {a.via === 'session' ? ' SENT TO CLAUDE ' : ' ANSWER '}
+          <Text backgroundColor={isWaiting ? '#8D8B85' : a.isError ? '#8D8B85' : ANSWER_COLOR} color="#000000" bold>
+            {isWaiting ? ' SENT TO CLAUDE ' : ' ANSWER '}
           </Text>
-          <Text dimColor>{a.via === 'session' ? ' in the conversation' : ' quick answer from this review'}</Text>
+          <Text dimColor>
+            {isWaiting ? ' waiting for Claude in the session' : isSession ? ` from Claude in the session${a.answeredAt ? ` · ${clock(a.answeredAt)}` : ''}` : ' quick answer from this review'}
+          </Text>
         </Text>
         <Box paddingLeft={2} flexDirection="column">
-          {a.via === 'session' ? (
+          {isWaiting ? (
             <Text dimColor italic>
-              Claude answers in the conversation.
+              Claude is researching this in the conversation; the answer will appear here.
             </Text>
           ) : a.answer ? (
             md(ui, a.answer, `ans-${a.id}`, !!a.isError)
@@ -504,10 +515,18 @@ function exchange(ui: UI, a: Ask): RenderElement {
               Thinking…
             </Text>
           )}
+          {sources && md(ui, `**Sources**\n\n${sources}`, `src-${a.id}`, true)}
         </Box>
       </Box>
     </Box>
   )
+}
+
+/** One question and its answer as plain Markdown, for the clipboard. */
+export function askText(a: Ask): string {
+  const lines = [`**Q:** ${a.question}`, '', `**A:** ${a.answer ?? ''}`]
+  if (a.sources?.length) lines.push('', 'Sources:', ...a.sources.map(x => `- ${x.url ? `${x.title}: ${x.url}` : x.title}`))
+  return lines.join('\n')
 }
 
 /** The card's own questions, in a frame of their own under the card: the thread, then the field to ask. */
@@ -531,7 +550,7 @@ function askBlock(ctx: Ctx, card: Card): RenderElement {
         <Text dimColor>{asks.length ? `  ·  ${asks.length} asked` : '  ·  questions and answers stay with this card'}</Text>
       </Button>
       {isOpen && asks.length > shown.length && <Button key={`ask-all-${card.id}`} plain dimColor label={`Show all ${asks.length} questions`} onPress={act.showAllAsks} />}
-      {isOpen && shown.map(a => exchange(ui, a))}
+      {isOpen && shown.map(a => exchange(ctx, a))}
       {isOpen && 'Input' in ui && (
         <Box flexDirection="column">
           {/* Keyed by the count asked: each question asked draws a fresh, empty field. */}
@@ -652,7 +671,10 @@ export function packView(ctx: Ctx): RenderElement {
             {isPending ? ` · ${state === 'done' ? 'answered' : state === 'partial' ? 'started' : 'not answered yet'}` : ''}
           </Text>
         </Text>
-        <Text bold>{card.title}</Text>
+        <Box flexDirection="row" justifyContent="space-between" gap={1}>
+          <Text bold>{card.title}</Text>
+          <Button key={`copy-card-${card.id}`} plain dimColor label="⧉ Copy" onPress={p => act.copy(cardText(pack, card, draft), p.surface)} />
+        </Box>
       </Box>
       {content}
       {answer && (

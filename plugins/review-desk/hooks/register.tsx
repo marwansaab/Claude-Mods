@@ -2,8 +2,10 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Ask, Draft, DeskView, OpenPack, Pack, PackStatus, PackSummary, Response } from '../types'
-import { FILES, README, join, moveArgv, submittedAtOf } from './disk'
+import { FILES, README, isWindowsPath, join, moveArgv, submittedAtOf } from './disk'
 import {
+  ANSWER_DESCRIPTION,
+  ANSWER_SCHEMA,
   ASK_SYSTEM,
   PUBLISH_DESCRIPTION,
   PUBLISH_SCHEMA,
@@ -23,6 +25,7 @@ const PANE = 'review-desk'
 const PANE_TITLE = 'Review desk'
 const TOOL = 'mcp__review-desk__publish_review'
 const LIST_TOOL = 'mcp__review-desk__list_reviews'
+const ANSWER_TOOL = 'mcp__review-desk__answer_question'
 
 const START_VIEW: DeskView = {
   tab: 'pending',
@@ -126,8 +129,8 @@ async function loadPack($: EngineInterface, root: string, status: PackStatus, id
   return { pack, draft, status, submittedAt }
 }
 
-async function saveDraft($: EngineInterface, root: string, id: string, draft: Draft): Promise<void> {
-  await $.fs.write(join(root, 'pending', id, FILES.draft), JSON.stringify(draft, null, 2))
+async function saveDraft($: EngineInterface, root: string, id: string, draft: Draft, status: PackStatus = 'pending'): Promise<void> {
+  await $.fs.write(join(root, status, id, FILES.draft), JSON.stringify(draft, null, 2))
 }
 
 /**
@@ -257,11 +260,18 @@ async function ask($: EngineInterface, question: string, via: 'quick' | 'session
 
   if (via === 'session') {
     const root = await rootOf($)
-    const where = join(root, current.status, v.openId ?? current.pack.id, 'pack.json')
+    const folder = v.openId ?? current.pack.id
+    const where = join(root, current.status, folder, 'pack.json')
     await $.prompt.submit({
-      text: `A question from the review desk about "${current.pack.title}" (${where}), on ${card.type} ${card.id} "${about}":\n\n${q}\n\nAnswer it here; do not change any record unless I ask.`,
+      text: [
+        `A question from the review desk, on ${card.type} card ${card.id} "${about}" of the review "${current.pack.title}" (${where}):`,
+        '',
+        q,
+        '',
+        `Research it with whatever you need: the web, this project, its notes. Then put your answer on the card with answer_question (review "${folder}", ask "${entry.id}"), in Markdown short enough for a side panel, and list what you drew on as sources with their URLs. Do not change any record unless I ask.`,
+      ].join('\n'),
     })
-    $.ui.toast('Sent to the session')
+    $.ui.toast('Sent to Claude; the answer will appear on this card')
     return
   }
 
@@ -375,6 +385,30 @@ async function resend($: EngineInterface): Promise<void> {
   $.ui.toast('Outcome sent to Claude')
 }
 
+/**
+ * Puts text on the clipboard: the surface's own first; where it has no path (a remote surface such as
+ * the desktop app), the system's clipboard command on this machine.
+ */
+async function copyText($: EngineInterface, text: string, surface: string): Promise<void> {
+  const viaSurface = await $.ui.copy({ text, surface: surface as never }).catch(() => ({ isCopied: false as const }))
+  if (viaSurface.isCopied) {
+    $.ui.toast('Copied')
+    return
+  }
+  const root = await rootOf($)
+  const tries: string[][] = isWindowsPath(root)
+    ? [['powershell', '-NoProfile', '-NonInteractive', '-Command', '[Console]::InputEncoding=[Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())']]
+    : [['pbcopy'], ['wl-copy'], ['xclip', '-selection', 'clipboard']]
+  for (const argv of tries) {
+    const run = await $.process.run(argv, { stdin: text, timeoutMs: 10_000 }).catch(() => undefined)
+    if (run?.exitCode === 0) {
+      $.ui.toast('Copied')
+      return
+    }
+  }
+  $.ui.toast('Could not reach the clipboard')
+}
+
 /** The pane's controls, each one saving what it changes. */
 function actionsFor($: EngineInterface): Actions {
   const run = (work: () => Promise<unknown>) => void safely(work)
@@ -396,6 +430,7 @@ function actionsFor($: EngineInterface): Actions {
     submit: () => run(() => submit($)),
     confirm: isOn => run(() => moveTo($, x => ({ ...x, isConfirming: isOn }))),
     resend: () => run(() => resend($)),
+    copy: (text, surface) => run(() => copyText($, text, surface)),
   }
 }
 
@@ -416,6 +451,15 @@ async function setUp($: EngineInterface): Promise<void> {
           description:
             "List the review desk's reviews (pending and submitted) with their folders and how many cards the owner has answered. Outcomes are in <folder>/reviewed/<id>/outcome.md.",
           inputSchema: { type: 'object', properties: {} },
+        }),
+    ],
+    [
+      'the answer_question tool',
+      () =>
+        $.tool.register({
+          name: 'answer_question',
+          description: ANSWER_DESCRIPTION,
+          inputSchema: ANSWER_SCHEMA,
         }),
     ],
     [
@@ -480,6 +524,40 @@ async function publish($: EngineInterface, input: Record<string, unknown>) {
   }
 }
 
+/** Claude's answer to a question the owner sent from a card: written into that card's thread, on disk and on screen. */
+async function answerQuestion($: EngineInterface, input: Record<string, unknown>) {
+  const review = typeof input.review === 'string' ? input.review.trim() : ''
+  const askId = typeof input.ask === 'string' ? input.ask.trim() : ''
+  const answer = typeof input.answer === 'string' ? input.answer.trim() : ''
+  if (!review || !askId || !answer) return { deny: 'answer_question needs "review", "ask" and "answer", as given in the question prompt.' }
+  const root = await rootOf($)
+  let status: PackStatus | undefined
+  for (const s of ['pending', 'reviewed'] as PackStatus[]) if (!status && (await $.fs.exists(join(root, s, review, FILES.pack)))) status = s
+  if (!status) return { deny: `No review "${review}" in ${root}. Use the folder name from the question prompt, or list_reviews.` }
+
+  const current = await read($, open)
+  const v = viewOf(await read($, view))
+  const isOnScreen = !!current && v.openId === review && current.status === status
+  const draft = isOnScreen && current ? current.draft : readDraft(await readText($, join(root, status, review, FILES.draft)))
+  const asked = draft.asks.find(a => a.id === askId)
+  if (!asked) return { deny: `Review "${review}" has no question "${askId}". Use the ask id from the question prompt.` }
+
+  const sources = (Array.isArray(input.sources) ? input.sources : [])
+    .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null)
+    .map(x => ({ title: String(x.title ?? x.url ?? '').trim(), url: typeof x.url === 'string' ? x.url.trim() : undefined }))
+    .filter(x => x.title)
+  const done: Ask = { ...asked, via: 'session', answer, answeredAt: await nowIso($), isError: false, sources: sources.length ? sources : undefined }
+  const next = { ...draft, asks: draft.asks.map(a => (a.id === askId ? done : a)) }
+  await saveDraft($, root, review, next, status)
+  if (isOnScreen) {
+    await update($, open, o => (o ? { ...o, draft: next } : o))
+    const cardId = asked.card
+    if (cardId) await update($, view, x => ({ ...viewOf(x), askOpen: { ...(x.askOpen ?? {}), [cardId]: true } }))
+  }
+  $.ui.toast(`Claude answered on ${asked.about ?? 'the card'}`)
+  return { result: `Answer saved on ${asked.card ? `card ${asked.card}` : 'the card'} of "${review}". The owner sees it in the review desk; there is no need to repeat it in full here.` }
+}
+
 async function listForClaude($: EngineInterface) {
   const list = await refresh($)
   const root = await rootOf($)
@@ -517,6 +595,8 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: TOOL }, async ($, e) => publish($, e as unknown as Record<string, unknown>)).catch(($, e, next) => next(e))
 
   on('tool.call', { tool: LIST_TOOL }, async $ => listForClaude($)).catch(($, e, next) => next(e))
+
+  on('tool.call', { tool: ANSWER_TOOL }, async ($, e) => answerQuestion($, e as unknown as Record<string, unknown>)).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)

@@ -19,8 +19,11 @@ There are no HTML pages to build, no browser to open and no notes to export and 
   | **Read-through** | read a long text section by section, with "Your call" flags, a note and a *Reviewed* tick each |
 
 - **Animated explainers.** Claude sends the scene as data and the desk draws it, on the desktop, as animated SVG: cards, flow, list, timeline, funnel, bars with a threshold, number tiles, a comparison table and a 2 × 2 matrix. Claim chips carry their grade (A–D), and hovering one shows the claim. In the terminal the same scene is drawn as text.
-- **Ask about the card in front of you.** Each card has its own *Ask about this card* section, which keeps that card's questions and answers together. A **quick answer** is written in the panel from the card and the rest of the review. **Ask Claude in the session** sends the question to the conversation, where Claude can read your project.
-- **One card at a time.** A review opens on a numbered stepper (a tick for each card answered), arrows and a jump list, and the current card in a frame coloured by its type. Inside the frame: what the card says, then *Your answer*, then *Ask about this card*. Submitting sits below the frame.
+- **Ask about the card in front of you.** Each card has its own *Ask about this card* section, framed under the card, which keeps that card's questions and answers together.
+  - **Quick answer** is written in the panel at once, from the card and the rest of the review.
+  - **Ask Claude in the session** sends the question to the conversation. Claude researches it with everything the session has (the web, your project, its notes) and puts the answer back on the card, with its sources.
+- **One card at a time.** A review opens on a numbered stepper (a tick for each card answered), *Previous* and *Next* around a jump list, and the current card in a frame coloured by its type: what the card says, its evidence, then *Your answer*. Submitting sits at the bottom.
+- **Copy.** Each card and each answer has a *Copy* button that puts it on your clipboard as Markdown.
 - **Saved as you go.** Every answer is written to `draft.json` straight away. Close the panel, or end the session, and carry on later.
 - **Submit, and Claude applies it.** Submitting writes `outcome.md` and `outcome.json`, moves the review to `reviewed/`, and queues a prompt that asks Claude to apply the outcome in each record's real home and to confirm with you before writing.
 
@@ -41,6 +44,7 @@ Answer `y` to add the marketplace, then choose a scope. A mod installed this way
 | `/reviews` | Opens the review desk, or closes it when it is open |
 | `publish_review` (tool for Claude) | Puts a review on the desk. Claude is told to use it instead of building HTML review pages or asking many questions in chat |
 | `list_reviews` (tool for Claude) | Lists pending and submitted reviews, with the path of each outcome |
+| `answer_question` (tool for Claude) | Puts Claude's answer to a question you sent from a card back on that card, with its sources |
 
 To start, ask Claude something like *"put the open questions for this initiative up for review"*, *"send this write plan to the review desk"* or *"make an explainer of this note on the review desk"*.
 
@@ -99,7 +103,8 @@ To start, ask Claude something like *"put the open questions for this initiative
 ## Known limits
 
 - **Desktop and terminal.** Animated scenes draw on the desktop. The terminal shows them as text, and the mobile app, which has no text fields yet, shows reviews without the answer boxes.
-- **Quick answers know only the review.** They are focused on the open card. They cannot read your project or vault; use *Ask Claude in the session* for that.
+- **Quick answers know only the review.** They are focused on the open card and cannot search the web or read your project; use *Ask Claude in the session* for that. A session answer arrives once Claude has finished its turn.
+- **Text in the panel cannot be selected.** The app draws the panel; use the *Copy* buttons. In the desktop app, copying goes through the system clipboard command (PowerShell `Set-Clipboard` on Windows, `pbcopy` on macOS, `wl-copy` or `xclip` on Linux).
 - **Text you type is saved when you press Enter or move on.** Typing and then closing the window straight away can lose the last field.
 - **Reviewed items are read-only.** To review something again, ask Claude to publish it again; the new review is filed separately.
 - **The function-hook plugin API is early access** and may change between Claude Code releases. Built and tested against Claude Code 2.1.296.

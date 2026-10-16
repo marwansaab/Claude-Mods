@@ -189,6 +189,10 @@ export type Ask = {
   at: string
   via: 'quick' | 'session'
   isError?: boolean
+  /** When Claude in the session put its answer on the card. */
+  answeredAt?: string
+  /** What a session answer drew on. */
+  sources?: { title: string; url?: string }[]
 }
 
 /** The owner's work on a pack so far, saved as `draft.json` beside it. */

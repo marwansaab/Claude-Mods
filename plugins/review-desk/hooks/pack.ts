@@ -401,6 +401,38 @@ export function cardOutcome(card: Card, draft: Draft): string[] {
   return lines
 }
 
+/** One card as Markdown for the clipboard: what it says, its evidence and the owner's response so far. */
+export function cardText(pack: Pack, card: Card, draft: Draft): string {
+  const out = [`## ${card.title}`, '', `_${TYPE_LABEL[card.type]} ${card.id} · ${pack.title}_`, '']
+  const add = (...parts: (string | undefined | false)[]) => parts.forEach(x => x && out.push(x, ''))
+  switch (card.type) {
+    case 'question':
+      add(card.prompt, card.context, ...(card.options ?? []).map(o => `- ${o.label}${o.description ? ` (${o.description})` : ''}${o.id === card.recommended ? ' (recommended)' : ''}`))
+      break
+    case 'decision':
+      add(card.proposal, card.rationale && `**Why:** ${card.rationale}`, ...(card.alternatives ?? []).map(a => `- Not chosen: ${a.label}${a.reason ? ` (${a.reason})` : ''}`), card.consequences && `**What follows:** ${card.consequences}`)
+      break
+    case 'finding':
+      add(card.quote && quoteBlock(card.quote), card.body, card.suggestion && `**Suggested change:** ${card.suggestion}`, card.evidence && `**The record says**${card.evidence.ref ? ` (${card.evidence.ref})` : ''}: ${card.evidence.quote}`)
+      break
+    case 'plan':
+      add(card.intro, card.rows.map(r => `- ${r.action} \`${r.target}\`${r.summary ? `: ${r.summary}` : ''}`).join('\n'))
+      break
+    case 'explainer':
+      add(card.intro, ...card.steps.map((st, i) => `**${i + 1}. ${st.title}**\n\n${st.caption}`))
+      break
+    case 'read':
+      add(card.intro, ...card.sections.map(sec => `### ${sec.title}\n\n${sec.body}`))
+      break
+  }
+  const cited = [...('claims' in card ? card.claims ?? [] : []), ...(card.type === 'explainer' ? card.steps.flatMap(st => [...(st.claims ?? []), ...sceneClaims(st.scene)]) : [])]
+  const claims = [...new Set(cited)].map(id => pack.claims?.find(c => c.id === id)).filter((c): c is Claim => !!c)
+  if (claims.length) add('**Evidence**', claims.map(c => `- ${c.id}${c.grade ? ` (${c.grade})` : ''}: ${c.text}${c.url ? ` ${c.url}` : c.source ? ` (${c.source})` : ''}`).join('\n'))
+  const response = cardOutcome(card, draft)
+  if (response.length) add('**Response**', response.join('\n'))
+  return out.join('\n').trim()
+}
+
 /** The outcome as Markdown: what the owner decided, for Claude to apply in the record's real home. */
 export function outcomeMarkdown(pack: Pack, draft: Draft, submittedAt: string): string {
   const out = [
@@ -424,7 +456,9 @@ export function outcomeMarkdown(pack: Pack, draft: Draft, submittedAt: string): 
     out.push('## Questions asked during the review', '')
     for (const a of asks) {
       out.push(`- **Q${a.about ? ` (${a.about})` : ''}:** ${a.question.replace(/\n+/g, ' ')}`)
-      out.push(a.via === 'session' ? '  - Asked in the session.' : `  - A: ${(a.answer ?? '').replace(/\n+/g, ' ')}`)
+      if (a.via === 'session' && !a.answer) out.push('  - Asked in the session; no answer was put on the card.')
+      else out.push(`  - A${a.via === 'session' ? ' (Claude in the session)' : ''}: ${(a.answer ?? '').replace(/\n+/g, ' ')}`)
+      for (const s of a.sources ?? []) out.push(`    - Source: ${s.url ? `[${s.title}](${s.url})` : s.title}`)
     }
     out.push('')
   }
@@ -497,6 +531,27 @@ export const ASK_SYSTEM = [
 
 const tone = { type: 'string', enum: TONES as unknown as string[] }
 const sceneItem = { type: 'object', properties: { title: { type: 'string' }, text: { type: 'string' }, tone, claim: { type: 'string' } }, required: ['title'] }
+
+export const ANSWER_DESCRIPTION = [
+  'Put your answer to a question the owner asked from a review desk card onto that card, where they asked it.',
+  'Use it after a prompt that says "A question from the review desk": research first with whatever you need, then call this with the review and ask ids from that prompt.',
+  'Write the answer in Markdown short enough for a side panel; list what you drew on in "sources" with URLs. Never invent a source.',
+].join('\n')
+
+export const ANSWER_SCHEMA = {
+  type: 'object',
+  properties: {
+    review: { type: 'string', description: 'The review folder id from the question prompt.' },
+    ask: { type: 'string', description: 'The ask id from the question prompt.' },
+    answer: { type: 'string', description: 'The answer, in Markdown.' },
+    sources: {
+      type: 'array',
+      description: 'What the answer drew on.',
+      items: { type: 'object', properties: { title: { type: 'string' }, url: { type: 'string' } }, required: ['title'] },
+    },
+  },
+  required: ['review', 'ask', 'answer'],
+}
 
 export const PUBLISH_DESCRIPTION = [
   'Put work in front of the owner for review in the review desk, a side panel in Claude Code: open questions to answer, proposed decisions to approve, findings to accept or reject, a write plan to approve row by row, an animated explainer to walk through, or a long text to read section by section.',
