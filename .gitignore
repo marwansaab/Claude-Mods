@@ -1,5 +1,6 @@
 # Written by Claude Code each time it loads a mod from disk; regenerated, never edited.
 plugins/*/.claude-plugin/types/
+plugins/*/tsconfig.json
 
 # Local tooling
 node_modules/
