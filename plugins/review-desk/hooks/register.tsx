@@ -6,14 +6,12 @@ import { FILES, README, isWindowsPath, join, moveArgv, submittedAtOf } from './d
 import {
   ANSWER_DESCRIPTION,
   ANSWER_SCHEMA,
-  ASK_SYSTEM,
   PUBLISH_DESCRIPTION,
   PUBLISH_SCHEMA,
   cleanPack,
   handOffPrompt,
   outcomeJson,
   outcomeMarkdown,
-  packDigest,
   readDraft,
   readPack,
   summaryOf,
@@ -52,7 +50,7 @@ function viewOf(v: Partial<DeskView> | undefined): DeskView {
 }
 
 /** The person's settings: set by `register` on every load, read by the functions below. */
-const cfg = { folder: 'Reviews', autoOpen: true, handOff: true, askModel: '', selectableText: true }
+const cfg = { folder: 'Reviews', autoOpen: true, handOff: true, selectableText: true }
 
 /** The desk observes and stores; nothing it does may fail a tool call, a command or a turn. */
 async function safely<T>(work: () => Promise<T>): Promise<T | undefined> {
@@ -243,8 +241,8 @@ async function recordAsk($: EngineInterface, a: Ask): Promise<void> {
   else await update($, open, o => (o ? { ...o, draft: { ...o.draft, asks: [...o.draft.asks.filter(x => x.id !== a.id), a] } } : o))
 }
 
-/** A question about the open review: answered in the pane from the review itself, or sent to the session. */
-async function ask($: EngineInterface, question: string, via: 'quick' | 'session'): Promise<void> {
+/** A question about the open card: sent to Claude in the session, whose answer comes back onto the card. */
+async function ask($: EngineInterface, question: string): Promise<void> {
   const q = question.trim()
   const current = await read($, open)
   const v = viewOf(await read($, view))
@@ -255,47 +253,20 @@ async function ask($: EngineInterface, question: string, via: 'quick' | 'session
     card.type === 'explainer' ? card.steps[v.part[card.id] ?? 0]?.title : card.type === 'read' ? card.sections[v.part[card.id] ?? 0]?.title : undefined
   const about = [card.title, part].filter(Boolean).join(': ')
   const at = await $.clock.now()
-  const entry: Ask = { id: `a${at.toString(36)}`, question: q, card: card.id, about, at: new Date(at).toISOString(), via }
+  const entry: Ask = { id: `a${at.toString(36)}`, question: q, card: card.id, about, at: new Date(at).toISOString(), via: 'session' }
   await recordAsk($, entry)
-
-  if (via === 'session') {
-    const root = await rootOf($)
-    const folder = v.openId ?? current.pack.id
-    const where = join(root, current.status, folder, 'pack.json')
-    await $.prompt.submit({
-      text: [
-        `A question from the review desk, on ${card.type} card ${card.id} "${about}" of the review "${current.pack.title}" (${where}):`,
-        '',
-        q,
-        '',
-        `Research it with whatever you need: the web, this project, its notes. Then put your answer on the card with answer_question (review "${folder}", ask "${entry.id}"), in Markdown short enough for a side panel, and list what you drew on as sources with their URLs. Do not change any record unless I ask.`,
-      ].join('\n'),
-    })
-    $.ui.toast('Sent to Claude; the answer will appear on this card')
-    return
-  }
-
-  await update($, view, x => ({ ...x, askingCard: card.id, askOpen: { ...(x.askOpen ?? {}), [card.id]: true } }))
-  try {
-    const model = cfg.askModel || (await $.session.model())
-    const result = await $.model.complete({
-      model,
-      system: ASK_SYSTEM,
-      prompt: `${packDigest(current.pack, card)}\n\nThe owner's question: ${q}`,
-      maxTokens: 900,
-      timeoutMs: 90_000,
-    })
-    await recordAsk(
-      $,
-      result.isAnswered
-        ? { ...entry, answer: result.text.trim() }
-        : { ...entry, answer: `No answer (${result.reason}). Try "Ask Claude in the session".`, isError: true },
-    )
-  } catch {
-    await recordAsk($, { ...entry, answer: 'The quick answer failed. Try "Ask Claude in the session".', isError: true })
-  } finally {
-    await update($, view, x => ({ ...x, askingCard: undefined }))
-  }
+  const root = await rootOf($)
+  const folder = v.openId ?? current.pack.id
+  const where = join(root, current.status, folder, 'pack.json')
+  await $.prompt.submit({
+    text: [
+      `A question from the review desk, on ${card.type} card ${card.id} "${about}" of the review "${current.pack.title}" (${where}):`,
+      '',
+      q,
+      '',
+      `Research it with whatever you need: the web, this project, its notes. Then put your answer on the card with answer_question (review "${folder}", ask "${entry.id}"), in Markdown short enough for a side panel, and list what you drew on as sources with their URLs. Do not change any record unless I ask.`,
+    ].join('\n'),
+  })
 }
 
 async function submit($: EngineInterface): Promise<void> {
@@ -356,12 +327,12 @@ async function toggleRow($: EngineInterface, cardId: string, rowId: string): Pro
 
 async function commitField($: EngineInterface, key: string, text: string): Promise<void> {
   await update($, typing, t => Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)))
-  if (key.startsWith('ask:')) await ask($, text, 'quick')
+  if (key.startsWith('ask:')) await ask($, text)
   else if (key.startsWith('t:')) await respond($, key.slice(2), { text })
 }
 
 /** Asks what is typed in the open card's question field. */
-async function askTyped($: EngineInterface, via: 'quick' | 'session'): Promise<void> {
+async function askTyped($: EngineInterface): Promise<void> {
   const current = await read($, open)
   const v = viewOf(await read($, view))
   const card = current?.pack.cards[Math.min(v.card, current.pack.cards.length - 1)]
@@ -373,7 +344,7 @@ async function askTyped($: EngineInterface, via: 'quick' | 'session'): Promise<v
     $.ui.toast('Type a question first')
     return
   }
-  await ask($, typed, via)
+  await ask($, typed)
 }
 
 async function resend($: EngineInterface): Promise<void> {
@@ -424,8 +395,7 @@ function actionsFor($: EngineInterface): Actions {
     type: (key, text) => run(() => update($, typing, t => ({ ...t, [fieldKey(key)]: text }))),
     commit: (key, text) => run(() => commitField($, fieldKey(key), text)),
     toggleSummary: () => run(() => update($, view, x => ({ ...x, isSummaryOpen: !x.isSummaryOpen }))),
-    toggleAsk: cardId => run(() => update($, view, x => ({ ...x, askOpen: { ...(x.askOpen ?? {}), [cardId]: !(x.askOpen ?? {})[cardId] } }))),
-    askTyped: via => run(() => askTyped($, via)),
+    askTyped: () => run(() => askTyped($)),
     showAllAsks: () => run(() => update($, view, x => ({ ...x, showAllAsks: true }))),
     submit: () => run(() => submit($)),
     confirm: isOn => run(() => moveTo($, x => ({ ...x, isConfirming: isOn }))),
@@ -573,7 +543,6 @@ export const register: Register = (on, options) => {
   cfg.folder = typeof options.folder === 'string' && options.folder.trim() ? options.folder.trim().replace(/[\\/]+$/, '') : 'Reviews'
   cfg.autoOpen = options.autoOpen !== false
   cfg.handOff = options.handOff !== false
-  cfg.askModel = typeof options.askModel === 'string' ? options.askModel.trim() : ''
   cfg.selectableText = options.selectableText !== false
 
   on('session.start', async ($, e, next) => {

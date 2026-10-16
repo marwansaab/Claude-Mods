@@ -5,7 +5,7 @@ export const FILES = { pack: 'pack.json', draft: 'draft.json', outcome: 'outcome
 
 export const README = `# Reviews
 
-Review packs for the owner, written by Claude through the review-desk mod and answered in its panel (\`/review\`).
+Review packs for the owner, written by Claude through the review-desk mod and answered in its panel (\`/reviews\`).
 
 - \`pending/<id>/pack.json\`: what is up for review; \`draft.json\`: the owner's answers so far.
 - \`reviewed/<id>/\`: the same, plus \`outcome.md\` and \`outcome.json\` once submitted.

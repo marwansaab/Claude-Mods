@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import type { Pack } from '../types'
-import { cardState, cleanPack, emptyDraft, handOffPrompt, outcomeMarkdown, packDigest } from '../hooks/pack'
+import { cardState, cleanPack, emptyDraft, handOffPrompt, outcomeMarkdown } from '../hooks/pack'
 import { sceneSvg, sceneText, wrap } from '../hooks/scenes'
 import { markdownSvg } from '../hooks/mdsvg'
 import { isLinkHeavy } from '../hooks/view'
@@ -101,12 +101,6 @@ describe('progress and outcome', () => {
     expect(md).toMatch(/\[ \] edit `Notes\/B.md`/)
     expect(md).toMatch(/What is C1 based on\?/)
     expect(handOffPrompt(pack, '/p/Reviews/reviewed/x/outcome.md')).toMatch(/confirm with me before writing/)
-  })
-
-  test('a quick question carries the card being read and the claims', async () => {
-    const digest = packDigest(pack, pack.cards[0])
-    expect(digest).toMatch(/Should players be able to report an ad/)
-    expect(digest).toMatch(/C1 \[B\]/)
   })
 })
 
@@ -271,16 +265,15 @@ describe('the desk', () => {
     expect(await shows(pane, /Use one save slot/)).toBe(true)
     await pane.press({ key: 'verb-ADR-1-approve' })
 
-    // A quick question is answered in the pane from the review.
-    // Questions belong to the card: its Ask section opens, answers, and stays with that card.
-    expect(await pane.find({ key: 'ask:ADR-1#0' })).toBeUndefined()
-    await pane.press({ key: 'ask-toggle-ADR-1' })
+    // Every question goes to Claude in the session; its answer comes back onto this card only.
     await pane.input({ key: 'ask:ADR-1#0', text: 'Why one slot?' })
-    expect(await shows(pane, /Because the report says so/)).toBe(true)
+    expect(await shows(pane, /Claude is looking into it/)).toBe(true)
     // Asked, the question field is drawn afresh and empty.
     expect(await pane.find({ key: 'ask:ADR-1#0' })).toBeUndefined()
     expect((await pane.find({ key: 'ask:ADR-1#1' }))?.text ?? '').toBe('')
-    expect(await shows(pane, /1 asked/)).toBe(true)
+    const askId = /ask "([^"]+)"/.exec(world.prompts.at(-1) ?? '')?.[1] ?? ''
+    await $.tool.call({ tool: 'mcp__review-desk__answer_question', tool_use_id: 'toolu_ans', review: 'INIT-9-open-questions', ask: askId, answer: 'Because the report says so.' } as never)
+    expect(await shows(pane, /Because the report says so/)).toBe(true)
     await pane.press({ key: 'card-prev' })
     expect(await shows(pane, /Why one slot\?/)).toBe(false)
     await pane.press({ key: 'card-next' })
@@ -358,10 +351,11 @@ describe('the desk', () => {
     const world = memoryWorld(on)
     await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_5', ...SAMPLE } as never)
     const pane = await $.ui.mount({ plugin: 'review-desk', surface: 'desktop', ...PANE })
-    await pane.press({ key: 'ask-toggle-Q-13' })
     await pane.input({ key: 'ask:Q-13#0', text: 'Do other games let players report ads?', kind: 'change' })
-    await pane.press({ key: 'ask-session-Q-13' })
-    expect(await shows(pane, /waiting for Claude in the session/)).toBe(true)
+    await pane.press({ key: 'ask-send-Q-13' })
+    expect(await shows(pane, /Claude is looking into it/)).toBe(true)
+    // The question shows as a bubble (an Svg on the desktop, its words in the alt text).
+    expect(await shows(pane, /Do other games let players report ads\?/)).toBe(true)
 
     const prompt = world.prompts.at(-1) ?? ''
     expect(prompt).toMatch(/answer_question/)
@@ -379,7 +373,6 @@ describe('the desk', () => {
       answer: 'Yes: several store policies require it.',
       sources: [{ title: 'Store policy', url: 'https://example.com/policy' }],
     } as never)
-    expect(await shows(pane, /from Claude in the session/)).toBe(true)
     expect(await shows(pane, /several store policies require it/)).toBe(true)
     expect(await shows(pane, /Store policy/)).toBe(true)
     const draft = JSON.parse(world.files.get('/proj/Reviews/pending/INIT-9-open-questions/draft.json')!)
@@ -429,7 +422,7 @@ describe('the desk', () => {
     for (const surface of ['terminal', 'desktop'] as const) {
       const pane = await $.ui.mount({ plugin: 'review-desk', surface, ...PANE })
       expect(await shows(pane, /Report an inappropriate ad/)).toBe(true)
-      expect(await shows(pane, /ask about this card/i)).toBe(true)
+      expect(await shows(pane, /Ask Claude about this card/)).toBe(true)
       await pane.unmount()
     }
   })

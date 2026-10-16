@@ -6,7 +6,7 @@ import type { Elements, RenderElement } from 'claude-code'
 import type { Ask, Card, CardType, Claim, DeskView, OpenPack, PackSummary, Response } from '../types'
 import { TYPE_LABEL, cardOutcome, cardState, cardText, partKey, rowIsOn } from './pack'
 import type { CardState } from './pack'
-import { markdownSvg } from './mdsvg'
+import { bubbleSvg, markdownSvg, thinkingSvg } from './mdsvg'
 import { deskHeaderSvg, ringSvg, sceneSvg, sceneText, stepperSvg } from './scenes'
 
 type UI = Elements['terminal'] | Elements['desktop'] | Elements['vscode'] | Elements['mobile']
@@ -24,8 +24,7 @@ export type Actions = {
   type: (key: string, text: string) => void
   commit: (key: string, text: string) => void
   toggleSummary: () => void
-  toggleAsk: (cardId: string) => void
-  askTyped: (via: 'quick' | 'session') => void
+  askTyped: () => void
   showAllAsks: () => void
   submit: () => void
   confirm: (isOn: boolean) => void
@@ -115,7 +114,7 @@ function field(ctx: Ctx, key: string, caption: string, value: string | undefined
   return (
     <Input
       key={key}
-      label={caption}
+      label={caption || undefined}
       value={value ?? ''}
       placeholder={placeholder}
       submitLabel={submitLabel}
@@ -499,56 +498,50 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
 /** Questions belong to the card they were asked on (older ones are matched by the card's title). */
 export const asksOf = (asks: Ask[], card: Card) => asks.filter(a => (a.card ? a.card === card.id : a.about === card.title || a.about?.startsWith(`${card.title}: `)))
 
-const ASK_COLOR = '#29B6F6'
-const ANSWER_COLOR = '#66BB6A'
 const clock = (iso: string) => iso.slice(11, 16)
 
-/** One question and its answer: the question on a blue chip, the answer on a green one, indented below. */
-function exchange(ctx: Ctx, a: Ask): RenderElement {
+/** One question as a bubble on the right, as Claude Desktop draws what you sent. */
+function questionBubble(ctx: Ctx, a: Ask): RenderElement {
+  const { ui } = ctx
+  const { Box, Text } = ui
+  if (ctx.isDesktop && 'Svg' in ui) {
+    const d = bubbleSvg(a.question, Math.max(200, Math.round((ctx.width - 40) * 0.8)))
+    return (
+      <Box key={`q-${a.id}`} flexDirection="row" justifyContent="flex-end">
+        <ui.Svg source={d.svg} alt={d.alt} width={d.width} height={d.height} isInteractive />
+      </Box>
+    )
+  }
+  return (
+    <Box key={`q-${a.id}`} flexDirection="row" justifyContent="flex-end">
+      <Text inverse> {a.question} </Text>
+    </Box>
+  )
+}
+
+/** Claude's reply as plain text on the left, its sources under it, a quiet Copy beside them. */
+function reply(ctx: Ctx, a: Ask): RenderElement {
   const { ui, act } = ctx
   const { Box, Text, Button } = ui
-  const isSession = a.via === 'session'
-  const isWaiting = isSession && !a.answer
+  if (!a.answer) {
+    const dots = ctx.isDesktop && 'Svg' in ui ? thinkingSvg() : undefined
+    return (
+      <Box key={`r-${a.id}`} flexDirection="row" gap={1} alignItems="center">
+        {dots && 'Svg' in ui ? <ui.Svg source={dots.svg} alt={dots.alt} width={dots.width} height={dots.height} isInteractive /> : <Text color="#D97757">●●●</Text>}
+        <Text dimColor italic>
+          Claude is looking into it…
+        </Text>
+      </Box>
+    )
+  }
   const sources = (a.sources ?? []).map(x => `- ${x.url ? `[${x.title}](${x.url})` : x.title}`).join('\n')
   return (
-    <Box key={`ask-${a.id}`} flexDirection="column" gap={1}>
-      <Box flexDirection="column">
-        <Box flexDirection="row" justifyContent="space-between">
-          <Text>
-            <Text backgroundColor={ASK_COLOR} color="#000000" bold>
-              {' YOU ASKED '}
-            </Text>
-            <Text dimColor> {clock(a.at)}</Text>
-          </Text>
-          {a.answer && <Button key={`copy-ask-${a.id}`} plain dimColor label="⧉ Copy" onPress={p => act.copy(askText(a), p.surface)} />}
-        </Box>
-        <Box paddingLeft={2}>
-          <Text bold>{a.question}</Text>
-        </Box>
-      </Box>
-      <Box flexDirection="column">
-        <Text>
-          <Text backgroundColor={isWaiting ? '#8D8B85' : a.isError ? '#8D8B85' : ANSWER_COLOR} color="#000000" bold>
-            {isWaiting ? ' SENT TO CLAUDE ' : ' ANSWER '}
-          </Text>
-          <Text dimColor>
-            {isWaiting ? ' waiting for Claude in the session' : isSession ? ` from Claude in the session${a.answeredAt ? ` · ${clock(a.answeredAt)}` : ''}` : ' quick answer from this review'}
-          </Text>
-        </Text>
-        <Box paddingLeft={2} flexDirection="column">
-          {isWaiting ? (
-            <Text dimColor italic>
-              Claude is researching this in the conversation; the answer will appear here.
-            </Text>
-          ) : a.answer ? (
-            md(ui, a.answer, `ans-${a.id}`, !!a.isError)
-          ) : (
-            <Text dimColor italic>
-              Thinking…
-            </Text>
-          )}
-          {sources && md(ui, `**Sources**\n\n${sources}`, `src-${a.id}`, true, 'open')}
-        </Box>
+    <Box key={`r-${a.id}`} flexDirection="column" gap={1}>
+      {md(ui, a.answer, `ans-${a.id}`, !!a.isError)}
+      {sources && md(ui, `**Sources**\n\n${sources}`, `src-${a.id}`, true, 'open')}
+      <Box flexDirection="row" gap={1}>
+        <Button key={`copy-ask-${a.id}`} plain dimColor label="⧉ Copy" onPress={p => act.copy(askText(a), p.surface)} />
+        <Text dimColor>{clock(a.answeredAt ?? a.at)}</Text>
       </Box>
     </Box>
   )
@@ -561,37 +554,34 @@ export function askText(a: Ask): string {
   return lines.join('\n')
 }
 
-/** The card's own questions, in a frame of their own under the card: the thread, then the field to ask. */
-function askBlock(ctx: Ctx, card: Card): RenderElement {
+/**
+ * A conversation with Claude about the card, under it: your questions on the right, Claude's answers
+ * on the left, and a composer at the bottom. Every question goes to Claude in the session, which can
+ * search the web and read the project, and the answer comes back here.
+ */
+function chatBlock(ctx: Ctx, card: Card): RenderElement {
   const { ui, open, view, act } = ctx
   const { Box, Text, Button } = ui
   const asks = asksOf(open!.draft.asks, card)
-  const isOpen = view.askOpen[card.id] ?? false
-  const shown = view.showAllAsks ? asks : asks.slice(-3)
+  const shown = view.showAllAsks ? asks : asks.slice(-4)
   return (
-    <Box key={`ask-${card.id}`} flexDirection="column" gap={1} borderStyle="round" borderColor={isOpen ? ASK_COLOR : undefined} borderDimColor={!isOpen} paddingX={1}>
-      <Button
-        key={`ask-toggle-${card.id}`}
-        plain
-        onPress={() => act.toggleAsk(card.id)}
-      >
-        {isOpen ? '▾ ' : '▸ '}
-        <Text color={ASK_COLOR} bold>
-          ASK ABOUT THIS CARD
+    <Box key={`chat-${card.id}`} flexDirection="column" gap={1} marginTop={1}>
+      <Text>
+        <Text color="#D97757" bold>
+          ✻{' '}
         </Text>
-        <Text dimColor>{asks.length ? `  ·  ${asks.length} asked` : '  ·  questions and answers stay with this card'}</Text>
-      </Button>
-      {isOpen && asks.length > shown.length && <Button key={`ask-all-${card.id}`} plain dimColor label={`Show all ${asks.length} questions`} onPress={act.showAllAsks} />}
-      {isOpen && shown.map(a => exchange(ctx, a))}
-      {isOpen && 'Input' in ui && (
-        <Box flexDirection="column">
-          {/* Keyed by the count asked: each question asked draws a fresh, empty field. */}
-          {field(ctx, `ask:${card.id}#${asks.length}`, 'New question', '', 'type it here · Enter for a quick answer', 'ask')}
-          <Box flexDirection="row" gap={1} flexWrap="wrap">
-            <Button key={`ask-quick-${card.id}`} label="Quick answer" onPress={() => act.askTyped('quick')} />
-            <Button key={`ask-session-${card.id}`} plain dimColor label="Ask Claude in the session" onPress={() => act.askTyped('session')} />
+        <Text bold>Ask Claude about this card</Text>
+      </Text>
+      {asks.length === 0 && <Text dimColor>Claude can search the web and read your project. The answer appears here.</Text>}
+      {asks.length > shown.length && <Button key={`ask-all-${card.id}`} plain dimColor label={`Show ${asks.length - shown.length} earlier`} onPress={act.showAllAsks} />}
+      {shown.flatMap(a => [questionBubble(ctx, a), reply(ctx, a)])}
+      {'Input' in ui && (
+        <Box key={`composer-${card.id}`} flexDirection="row" alignItems="center" gap={1} borderStyle="round" borderDimColor paddingX={1}>
+          <Box flexGrow={1} flexShrink={1} flexDirection="column">
+            {/* Keyed by the count asked: each question asked draws a fresh, empty field. */}
+            {field(ctx, `ask:${card.id}#${asks.length}`, '', '', 'Ask Claude about this card…', 'send')}
           </Box>
-          <Text dimColor>Quick answers come from this review only; Claude in the session can read your project.</Text>
+          <Button key={`ask-send-${card.id}`} variant="primary" label="↑" onPress={() => act.askTyped()} />
         </Box>
       )}
     </Box>
@@ -758,7 +748,7 @@ export function packView(ctx: Ctx): RenderElement {
       {about}
       {nav}
       {framed}
-      {askBlock(ctx, card)}
+      {chatBlock(ctx, card)}
       {footer}
     </Box>
   )
