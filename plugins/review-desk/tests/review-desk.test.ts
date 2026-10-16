@@ -153,6 +153,7 @@ const ROOT = '/proj'
 function memoryWorld(on: On) {
   const files = new Map<string, string>()
   const prompts: string[] = []
+  const clipboard: string[] = []
   // The engine resolves paths for the platform (on Windows `/proj` arrives as `C:\proj`): compare them as POSIX.
   const norm = (p: string) => p.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
   const isDir = (p: string) => [...files.keys()].some(k => k.startsWith(norm(p) + '/'))
@@ -177,6 +178,10 @@ function memoryWorld(on: On) {
   })
   on('process.run', ($, e) => {
     const [cmd, from, to] = e.argv
+    if (cmd === 'pbcopy') {
+      clipboard.push(e.init?.stdin ?? '')
+      return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     if (cmd !== 'mv' || !from || !to) return { value: { exitCode: 1, stdout: '', stderr: 'no', isStdoutTruncated: false, isStderrTruncated: false } }
     for (const [k, v] of [...files])
       if (k.startsWith(norm(from) + '/')) {
@@ -193,7 +198,9 @@ function memoryWorld(on: On) {
   on('ui.open', () => ({ value: { isPlaced: true } }) as never)
   on('ui.status', () => ({ value: undefined }) as never)
   on('ui.toast', () => ({ value: undefined }) as never)
-  return { files, prompts }
+  // The desktop app has no clipboard path for plugins yet: the desk falls back to the system's command.
+  on('ui.copy', () => ({ value: { isCopied: false, reason: 'no-surface' } }) as never)
+  return { files, prompts, clipboard }
 }
 
 const PANE = { component: 'Pane' as const, requestId: 'review-desk', props: { title: 'Review desk', isFocused: false, bodyColumns: 70, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 60 }, view: {} } }
@@ -310,6 +317,48 @@ describe('the desk', () => {
       await pane.press({ key: `open-pending-INIT-9-open-questions` })
       await pane.unmount()
     }
+  })
+
+  test('a question sent to the session comes back onto its card, with its sources', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_5', ...SAMPLE } as never)
+    const pane = await $.ui.mount({ plugin: 'review-desk', surface: 'desktop', ...PANE })
+    await pane.press({ key: 'ask-toggle-Q-13' })
+    await pane.input({ key: 'ask:Q-13#0', text: 'Do other games let players report ads?', kind: 'change' })
+    await pane.press({ key: 'ask-session-Q-13' })
+    expect(await shows(pane, /waiting for Claude in the session/)).toBe(true)
+
+    const prompt = world.prompts.at(-1) ?? ''
+    expect(prompt).toMatch(/answer_question/)
+    const askId = /ask "([^"]+)"/.exec(prompt)?.[1] ?? ''
+    expect(askId).not.toBe('')
+
+    const wrong = await $.tool.call({ tool: 'mcp__review-desk__answer_question', tool_use_id: 'toolu_6', review: 'INIT-9-open-questions', ask: 'nope', answer: 'x' } as never)
+    expect(JSON.stringify(wrong)).toMatch(/has no question/)
+
+    await $.tool.call({
+      tool: 'mcp__review-desk__answer_question',
+      tool_use_id: 'toolu_7',
+      review: 'INIT-9-open-questions',
+      ask: askId,
+      answer: 'Yes: several store policies require it.',
+      sources: [{ title: 'Store policy', url: 'https://example.com/policy' }],
+    } as never)
+    expect(await shows(pane, /from Claude in the session/)).toBe(true)
+    expect(await shows(pane, /several store policies require it/)).toBe(true)
+    expect(await shows(pane, /Store policy/)).toBe(true)
+    const draft = JSON.parse(world.files.get('/proj/Reviews/pending/INIT-9-open-questions/draft.json')!)
+    expect(draft.asks[0].answer).toBe('Yes: several store policies require it.')
+
+    // Copy works where the surface has no clipboard: the card, then the answer.
+    await pane.press({ key: 'copy-card-Q-13' })
+    expect(world.clipboard.at(-1)).toMatch(/## Report an inappropriate ad/)
+    expect(world.clipboard.at(-1)).toMatch(/Yes, from the ad itself \(recommended\)/)
+    await pane.press({ key: `copy-ask-${askId}` })
+    expect(world.clipboard.at(-1)).toMatch(/\*\*A:\*\* Yes: several store policies/)
+    expect(world.clipboard.at(-1)).toMatch(/https:\/\/example.com\/policy/)
+    await pane.unmount()
   })
 
   test('a view saved by an older version still draws', async ($, on) => {
