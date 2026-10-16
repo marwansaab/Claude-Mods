@@ -309,6 +309,26 @@ describe('the desk', () => {
     }
   })
 
+  test('a view saved by an older version still draws', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    memoryWorld(on)
+    // 0.1.0 kept no askOpen, and $.state outlives a reload: serve the view without it, as an old session would.
+    on('state.get', async ($, e, next) => {
+      const got = (await next(e)) as { value?: { value?: Record<string, unknown>; version: number } }
+      const stored = got.value?.value
+      if ((e as { key?: string }).key !== 'view' || !stored) return got as never
+      const { askOpen: _gone, ...older } = stored
+      return { ...got, value: { ...got.value, value: older } } as never
+    })
+    await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_4', ...SAMPLE } as never)
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const pane = await $.ui.mount({ plugin: 'review-desk', surface, ...PANE })
+      expect(await shows(pane, /Report an inappropriate ad/)).toBe(true)
+      expect(await shows(pane, /Ask about this card/)).toBe(true)
+      await pane.unmount()
+    }
+  })
+
   test('a bad pack is refused with what to fix, and nothing is written', async ($, on) => {
     mock.clock(on, { now: Date.parse(AT) })
     const world = memoryWorld(on)

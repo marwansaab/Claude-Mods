@@ -40,6 +40,11 @@ const open = atom({ plugin: 'review-desk', key: 'open' } as const, null as OpenP
 const typing = atom({ plugin: 'review-desk', key: 'typing' } as const, {} as Record<string, string>)
 const rootRef = atom({ plugin: 'review-desk', key: 'root' } as const, '')
 
+/** The view as stored, with any field an older version of the mod did not keep filled in. */
+function viewOf(v: Partial<DeskView> | undefined): DeskView {
+  return { ...START_VIEW, ...v, part: v?.part ?? {}, askOpen: v?.askOpen ?? {} }
+}
+
 /** The person's settings: set by `register` on every load, read by the functions below. */
 const cfg = { folder: 'Reviews', autoOpen: true, handOff: true, askModel: '' }
 
@@ -199,7 +204,7 @@ async function changeDraft($: EngineInterface, fn: (d: OpenPack['draft']) => Ope
   if (!current || current.status !== 'pending') return
   const draft = { ...fn(current.draft), updatedAt: at }
   await update($, open, o => (o ? { ...o, draft } : o))
-  const v = await read($, view)
+  const v = viewOf(await read($, view))
   if (!v.openId) return
   const root = await rootOf($)
   await safely(() => saveDraft($, root, v.openId!, draft))
@@ -236,7 +241,7 @@ async function recordAsk($: EngineInterface, a: Ask): Promise<void> {
 async function ask($: EngineInterface, question: string, via: 'quick' | 'session'): Promise<void> {
   const q = question.trim()
   const current = await read($, open)
-  const v = await read($, view)
+  const v = viewOf(await read($, view))
   if (!q || !current) return
   const card = current.pack.cards[Math.min(v.card, current.pack.cards.length - 1)]
   if (!card) return
@@ -257,7 +262,7 @@ async function ask($: EngineInterface, question: string, via: 'quick' | 'session
     return
   }
 
-  await update($, view, x => ({ ...x, askingCard: card.id, askOpen: { ...x.askOpen, [card.id]: true } }))
+  await update($, view, x => ({ ...x, askingCard: card.id, askOpen: { ...(x.askOpen ?? {}), [card.id]: true } }))
   try {
     const model = cfg.askModel || (await $.session.model())
     const result = await $.model.complete({
@@ -283,7 +288,7 @@ async function ask($: EngineInterface, question: string, via: 'quick' | 'session
 async function submit($: EngineInterface): Promise<void> {
   await flushTyping($)
   const current = await read($, open)
-  const v = await read($, view)
+  const v = viewOf(await read($, view))
   if (!current || current.status !== 'pending' || !v.openId) return
   const root = await rootOf($)
   const at = await nowIso($)
@@ -309,7 +314,7 @@ async function openPack($: EngineInterface, status: DeskView['tab'], id: string)
 
 async function reloadOpen($: EngineInterface): Promise<void> {
   await refresh($)
-  const v = await read($, view)
+  const v = viewOf(await read($, view))
   if (!v.openId || !v.openStatus) return
   const loaded = await loadPack($, await rootOf($), v.openStatus, v.openId)
   if (loaded) await update($, open, () => loaded)
@@ -345,7 +350,7 @@ async function commitField($: EngineInterface, key: string, text: string): Promi
 /** Asks what is typed in the open card's question field. */
 async function askTyped($: EngineInterface, via: 'quick' | 'session'): Promise<void> {
   const current = await read($, open)
-  const v = await read($, view)
+  const v = viewOf(await read($, view))
   const card = current?.pack.cards[Math.min(v.card, current.pack.cards.length - 1)]
   if (!card) return
   const key = `ask:${card.id}`
@@ -360,7 +365,7 @@ async function askTyped($: EngineInterface, via: 'quick' | 'session'): Promise<v
 
 async function resend($: EngineInterface): Promise<void> {
   const current = await read($, open)
-  const v = await read($, view)
+  const v = viewOf(await read($, view))
   if (!current || !v.openId) return
   const root = await rootOf($)
   await $.prompt.submit({ text: handOffPrompt(current.pack, join(root, 'reviewed', v.openId, 'outcome.md')) })
@@ -382,7 +387,7 @@ function actionsFor($: EngineInterface): Actions {
     type: (key, text) => run(() => update($, typing, t => ({ ...t, [key]: text }))),
     commit: (key, text) => run(() => commitField($, key, text)),
     toggleSummary: () => run(() => update($, view, x => ({ ...x, isSummaryOpen: !x.isSummaryOpen }))),
-    toggleAsk: cardId => run(() => update($, view, x => ({ ...x, askOpen: { ...x.askOpen, [cardId]: !x.askOpen[cardId] } }))),
+    toggleAsk: cardId => run(() => update($, view, x => ({ ...x, askOpen: { ...(x.askOpen ?? {}), [cardId]: !(x.askOpen ?? {})[cardId] } }))),
     askTyped: via => run(() => askTyped($, via)),
     showAllAsks: () => run(() => update($, view, x => ({ ...x, showAllAsks: true }))),
     submit: () => run(() => submit($)),
@@ -441,7 +446,7 @@ async function publish($: EngineInterface, input: Record<string, unknown>) {
   await safely(async () => {
     await refresh($)
     if (!cfg.autoOpen) return
-    const v = await read($, view)
+    const v = viewOf(await read($, view))
     if (!v.openId || v.openId === pack.id) {
       const loaded = await loadPack($, root, 'pending', pack.id)
       await update($, open, () => loaded ?? null)
@@ -512,7 +517,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
-    const v = await read($, view)
+    const v = viewOf(await read($, view))
     const ctx = {
       ui,
       isDesktop: e.surface !== 'terminal' && 'Svg' in ui,
@@ -523,6 +528,18 @@ export const register: Register = (on, options) => {
       act: actionsFor($),
       folder: cfg.folder,
     }
-    return v.openId ? packView(ctx) : homeView(ctx)
+    try {
+      return v.openId ? packView(ctx) : homeView(ctx)
+    } catch (err) {
+      // Never leave the pane blank: say what failed and offer the way back to the list.
+      const { Box, Text, Button } = ui
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Text bold>The review desk could not draw this view.</Text>
+          <Text dimColor>{err instanceof Error ? err.message : String(err)}</Text>
+          <Button key="recover" label="Back to all reviews" onPress={() => void safely(() => closePack($))} />
+        </Box>
+      )
+    }
   })
 }
