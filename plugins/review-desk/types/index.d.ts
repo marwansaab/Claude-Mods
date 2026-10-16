@@ -1,6 +1,6 @@
 // review-desk: the review pack format and the pane's state contract.
 
-/** Evidence grade, as the vault research rules use it: A primary … D inferred or unsourced. */
+/** Evidence grade: A primary or official … D inferred or unsourced. */
 export type Grade = 'A' | 'B' | 'C' | 'D'
 
 /** Colour meaning on a card or a scene element (the explainer engine's palette). */
@@ -11,14 +11,14 @@ export type Claim = {
   id: string
   text: string
   grade?: Grade
-  /** Publisher and title, or the vault note id that holds the claim. */
+  /** Publisher and title, or the id of the note or file that holds the claim. */
   source?: string
   url?: string
   /** ISO date the source was checked. */
   checked?: string
 }
 
-/** A vault note or file the pack mirrors: the record, never the pack. */
+/** A note or file the pack mirrors: the record, never the pack. */
 export type SourceRef = {
   id?: string
   title?: string

@@ -10,7 +10,7 @@ Review packs for the owner, written by Claude through the review-desk mod and an
 - \`pending/<id>/pack.json\`: what is up for review; \`draft.json\`: the owner's answers so far.
 - \`reviewed/<id>/\`: the same, plus \`outcome.md\` and \`outcome.json\` once submitted.
 
-These files mirror the project's records (vault notes, documents); they are never the record. Claude applies an outcome in the record's own home.
+These files mirror the project's records (files, notes, documents); they are never the record. Claude applies an outcome in the record's own home.
 `
 
 export const sepOf = (root: string) => (root.includes('\\') && !root.includes('/') ? '\\' : '/')

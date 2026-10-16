@@ -447,7 +447,7 @@ export function outcomeJson(pack: Pack, draft: Draft, submittedAt: string) {
 export function handOffPrompt(pack: Pack, outcomePath: string): string {
   return [
     `I submitted the review "${pack.title}" (\`${pack.id}\`) in the review desk.`,
-    `The outcome is in \`${outcomePath}\`. Read it, then apply each response in its real home (the vault note or file it came from), following this project's own rules.`,
+    `The outcome is in \`${outcomePath}\`. Read it, then apply each response in its real home (the file or note it came from), following this project's own rules.`,
     'Propose the changes and confirm with me before writing anything. Drop rejected and cancelled items; treat "Discuss" items, amendments and comments as questions to settle first.',
   ].join('\n')
 }
@@ -501,7 +501,7 @@ const sceneItem = { type: 'object', properties: { title: { type: 'string' }, tex
 export const PUBLISH_DESCRIPTION = [
   'Put work in front of the owner for review in the review desk, a side panel in Claude Code: open questions to answer, proposed decisions to approve, findings to accept or reject, a write plan to approve row by row, an animated explainer to walk through, or a long text to read section by section.',
   'Use it instead of building an HTML review or explainer page and instead of asking several questions in chat. The pack is saved under Reviews/pending/<id>/ in the project; the owner answers in the panel, can ask questions there, and submits. You then receive a prompt pointing at Reviews/reviewed/<id>/outcome.md.',
-  'The source notes stay the record: mirror them, cite their ids, never put a fact here that is not in the record. Grade claims A–D with a source; list every claim a card or scene cites in "claims".',
+  'When the work comes from files or notes, they stay the record: mirror them, cite their ids, and never put a fact here that they do not hold. Claims are optional; list every claim a card or scene cites in "claims", graded A (primary) to D (inferred) when the project grades its evidence.',
   'Card types: question (prompt, options[], recommended), decision (proposal, rationale, alternatives[]), finding (body, severity, kind drift|review, quote, suggestion, evidence), plan (rows[] of action + target + summary), explainer (steps[] of title, caption, scene), read (sections[] of title + body, flags[]).',
   'Scenes animate in the panel: cards, flow, list, timeline (items[] of title, text, tone, claim); funnel (items[] of label, value); bars (items[] of label, value, display; max; mark); tiles (items[] of value, label); compare (columns[], rows[] of label + cells[]); matrix (x, y, quadrants[4], dots[] of label, x 0–1, y 0–1). Tones: subject, context, risk, question, decision, good.',
   'Publishing the same id again replaces the pack and keeps the owner\'s answers for cards whose ids stay the same.',
@@ -536,7 +536,7 @@ export const PUBLISH_SCHEMA = {
         type: 'object',
         properties: {
           type: { type: 'string', enum: CARD_TYPES as unknown as string[] },
-          id: { type: 'string', description: 'Stable id, e.g. the vault id "Q-13" or "ADR-v-041".' },
+          id: { type: 'string', description: 'Stable id, e.g. the id of the note or item it comes from, such as "Q-13" or "ADR-041".' },
           title: { type: 'string' },
           prompt: { type: 'string' },
           context: { type: 'string' },
