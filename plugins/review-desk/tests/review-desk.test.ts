@@ -1,0 +1,352 @@
+import { describe, expect, mock, test } from 'claude-code/testing'
+import type { On } from 'claude-code'
+
+import type { Pack } from '../types'
+import { cardState, cleanPack, emptyDraft, handOffPrompt, outcomeMarkdown, packDigest } from '../hooks/pack'
+import { sceneSvg, sceneText, wrap } from '../hooks/scenes'
+import type { Scene } from '../types'
+
+const AT = '2026-10-16T09:00:00.000Z'
+
+const SAMPLE = {
+  id: 'INIT-9-open-questions',
+  title: 'Open questions for the sample initiative',
+  label: 'Open questions',
+  summary: 'Three things only you can settle.',
+  sources: [{ id: 'Q-1', title: 'Journey catalogue', updated: '2026-10-15' }],
+  claims: [{ id: 'C1', text: 'Most players quit in the first session.', grade: 'B', source: 'Example analytics', url: 'https://example.com/report' }],
+  cards: [
+    {
+      type: 'question',
+      id: 'Q-13',
+      title: 'Report an inappropriate ad',
+      prompt: 'Should players be able to report an ad?',
+      options: [
+        { id: 'yes', label: 'Yes, from the ad itself' },
+        { id: 'no', label: 'No, not in the first release' },
+      ],
+      recommended: 'yes',
+      claims: ['C1'],
+    },
+    { type: 'decision', id: 'ADR-1', title: 'Use one save slot', proposal: 'One save slot per player.', alternatives: [{ label: 'Three slots', reason: 'more to test' }] },
+    { type: 'finding', id: 'F01', title: 'Status differs', body: 'The deck says done; the note says active.', severity: 'high', kind: 'drift', quote: 'Status: done', evidence: { ref: 'TASK-1', quote: 'status: active' } },
+    { type: 'plan', id: 'P1', title: 'Write plan', rows: [{ action: 'create', target: 'Notes/A.md' }, { action: 'edit', target: 'Notes/B.md', summary: 'add a line' }] },
+    {
+      type: 'explainer',
+      id: 'E1',
+      title: 'Why players leave',
+      steps: [
+        { title: 'The drop', caption: 'Most leave early.', scene: { kind: 'bars', items: [{ label: 'Day 1', value: 40, claim: 'C1' }, { label: 'Day 7', value: 12 }], mark: { value: 20, label: 'target' } } },
+        { title: 'The fix', caption: 'Shorter first session.', scene: { kind: 'flow', items: [{ title: 'Open' }, { title: 'Play', tone: 'subject' }, { title: 'Win' }] } },
+      ],
+    },
+    { type: 'read', id: 'R1', title: 'Script', sections: [{ title: 'Intro', body: 'Hello there.', flags: ['Is the greeting right?'] }, { title: 'Outro', body: 'Goodbye.' }] },
+  ],
+}
+
+describe('publishing checks', () => {
+  test('a well-formed pack is accepted and tidied', async () => {
+    const { pack, problems } = cleanPack(SAMPLE, AT)
+    expect(problems).toEqual([])
+    expect(pack?.id).toBe('INIT-9-open-questions')
+    expect(pack?.cards.length).toBe(6)
+    const plan = pack?.cards[3]
+    expect(plan?.type === 'plan' && plan.rows.map(r => r.id)).toEqual(['r1', 'r2'])
+  })
+
+  test('problems are listed, never guessed past', async () => {
+    const { pack, problems } = cleanPack({ title: '', cards: [{ type: 'poll', title: 'x' }, { type: 'question', title: 'Q', claims: ['C9'] }] }, AT)
+    expect(pack).toBeUndefined()
+    expect(problems.join('\n')).toMatch(/"title" is required/)
+    expect(problems.join('\n')).toMatch(/must be one of/)
+    expect(problems.join('\n')).toMatch(/"prompt" is required/)
+    expect(problems.join('\n')).toMatch(/C9/)
+  })
+
+  test('an id is made from the date and title when none is given', async () => {
+    const { pack } = cleanPack({ ...SAMPLE, id: undefined, title: 'Deck: review #2' }, AT)
+    expect(pack?.id).toBe('2026-10-16-Deck-review-2')
+  })
+})
+
+describe('progress and outcome', () => {
+  const pack = cleanPack(SAMPLE, AT).pack as Pack
+
+  test('each card type knows when it is answered', async () => {
+    const d = emptyDraft()
+    expect(pack.cards.map(c => cardState(c, d))).toEqual(['open', 'open', 'open', 'open', 'open', 'open'])
+    d.responses['Q-13'] = { choice: 'yes' }
+    d.responses['ADR-1'] = { choice: 'amend' }
+    d.responses['F01'] = { text: 'Which note?' }
+    d.responses['P1'] = { choice: 'go', rows: { r2: false } }
+    d.responses['E1/step-1'] = { isDone: true }
+    d.responses['R1/s1'] = { isDone: true }
+    d.responses['R1/s2'] = { isDone: true }
+    expect(pack.cards.map(c => cardState(c, d))).toEqual(['done', 'partial', 'partial', 'done', 'partial', 'done'])
+  })
+
+  test('the outcome says what was decided, card by card', async () => {
+    const d = emptyDraft()
+    d.responses['Q-13'] = { choice: 'yes', text: 'and log it' }
+    d.responses['ADR-1'] = { choice: 'reject' }
+    d.responses['P1'] = { choice: 'go', rows: { r2: false } }
+    d.asks.push({ id: 'a1', question: 'What is C1 based on?', answer: 'An analytics report.', at: AT, via: 'quick' })
+    const md = outcomeMarkdown(pack, d, AT)
+    expect(md).toMatch(/Answer:\*\* Yes, from the ad itself \(the recommended option\)/)
+    expect(md).toMatch(/Comment:\*\* and log it/)
+    expect(md).toMatch(/Decision:\*\* Rejected/)
+    expect(md).toMatch(/Go ahead with 1 of 2 rows/)
+    expect(md).toMatch(/\[ \] edit `Notes\/B.md`/)
+    expect(md).toMatch(/What is C1 based on\?/)
+    expect(handOffPrompt(pack, '/p/Reviews/reviewed/x/outcome.md')).toMatch(/confirm with me before writing/)
+  })
+
+  test('a quick question carries the card being read and the claims', async () => {
+    const digest = packDigest(pack, pack.cards[0])
+    expect(digest).toMatch(/Should players be able to report an ad/)
+    expect(digest).toMatch(/C1 \[B\]/)
+  })
+})
+
+describe('scenes', () => {
+  const scenes: Scene[] = [
+    { kind: 'cards', items: [{ title: 'A', text: 'one' }, { title: 'B', tone: 'risk' }] },
+    { kind: 'flow', items: [{ title: 'A' }, { title: 'B' }] },
+    { kind: 'list', items: [{ title: 'A' }] },
+    { kind: 'timeline', items: [{ title: 'Q1' }, { title: 'Q2' }] },
+    { kind: 'funnel', items: [{ label: 'All', value: '100' }, { label: 'Paid', value: '3' }] },
+    { kind: 'bars', items: [{ label: 'A', value: 3 }], mark: { value: 2, label: 'line' } },
+    { kind: 'tiles', items: [{ value: 'AUD 50', label: 'price' }] },
+    { kind: 'compare', columns: ['Us', 'Them'], rows: [{ label: 'Price', cells: ['low', 'high'], tone: 'subject' }] },
+    { kind: 'matrix', x: 'Effort', y: 'Value', quadrants: ['a', 'b', 'c', 'd'], dots: [{ label: 'Idea', x: 0.2, y: 0.8 }] },
+  ]
+  test('every scene draws, settles when motion is reduced, and says what it shows', async () => {
+    for (const s of scenes) {
+      for (const w of [300, 800]) {
+        const d = sceneSvg(w, s, [{ id: 'C1', text: 't', grade: 'A' }])
+        expect(d.svg.startsWith('<svg')).toBe(true)
+        expect(d.svg).toMatch(/prefers-reduced-motion: reduce/)
+        expect(d.height).toBeGreaterThan(20)
+        expect(d.alt.length).toBeGreaterThan(0)
+      }
+      expect(sceneText(s).length).toBeGreaterThan(0)
+    }
+  })
+
+  test('text in a scene is escaped', async () => {
+    const d = sceneSvg(500, { kind: 'cards', items: [{ title: '<script>&' }] })
+    expect(d.svg).not.toMatch(/<script>/)
+    expect(d.svg).toMatch(/&lt;script&gt;&amp;/)
+  })
+
+  test('long text wraps to the width', async () => {
+    const lines = wrap('one two three four five six seven eight nine ten', 12)
+    expect(lines.every(l => l.length <= 18)).toBe(true)
+    expect(lines.length).toBeGreaterThan(2)
+  })
+})
+
+// ---------- the desk end to end, over an in-memory project folder ----------
+
+const ROOT = '/proj'
+
+function memoryWorld(on: On) {
+  const files = new Map<string, string>()
+  const prompts: string[] = []
+  // The engine resolves paths for the platform (on Windows `/proj` arrives as `C:\proj`): compare them as POSIX.
+  const norm = (p: string) => p.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
+  const isDir = (p: string) => [...files.keys()].some(k => k.startsWith(norm(p) + '/'))
+  on('session.root', () => ({ value: ROOT }))
+  on('session.model', () => ({ value: 'claude-test' }))
+  on('fs.read', ($, e) => (files.has(norm(e.path)) ? { value: files.get(norm(e.path))! } : { deny: `ENOENT: ${e.path}` }))
+  on('fs.write', ($, e) => {
+    files.set(norm(e.path), e.text)
+    return { value: undefined }
+  })
+  on('fs.exists', ($, e) => ({ value: files.has(norm(e.path)) || isDir(e.path) }))
+  on('fs.list', ($, e) => {
+    const names = new Map<string, 'file' | 'dir'>()
+    const dir = norm(e.path)
+    for (const k of files.keys()) {
+      if (!k.startsWith(dir + '/')) continue
+      const rest = k.slice(dir.length + 1)
+      const [first] = rest.split('/')
+      names.set(first!, rest.includes('/') ? 'dir' : 'file')
+    }
+    return { value: [...names].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })) }
+  })
+  on('process.run', ($, e) => {
+    const [cmd, from, to] = e.argv
+    if (cmd !== 'mv' || !from || !to) return { value: { exitCode: 1, stdout: '', stderr: 'no', isStdoutTruncated: false, isStderrTruncated: false } }
+    for (const [k, v] of [...files])
+      if (k.startsWith(norm(from) + '/')) {
+        files.delete(k)
+        files.set(norm(to) + k.slice(norm(from).length), v)
+      }
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('prompt.submit', ($, e) => {
+    prompts.push(e.text)
+    return { text: e.text } as never
+  })
+  on('model.complete', () => ({ value: { isAnswered: true, text: 'Because the report says so.', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('ui.status', () => ({ value: undefined }) as never)
+  on('ui.toast', () => ({ value: undefined }) as never)
+  return { files, prompts }
+}
+
+const PANE = { component: 'Pane' as const, requestId: 'review-desk', props: { title: 'Review desk', isFocused: false, bodyColumns: 70, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 60 }, view: {} } }
+
+const shows = async (ui: { findAll: (q: object) => Promise<{ text: string; props: Record<string, unknown> }[]> }, re: RegExp) =>
+  (await ui.findAll({})).some(f => re.test(f.text) || re.test(String(f.props.alt ?? '')))
+
+describe('the desk', () => {
+  test('Claude publishes; the owner answers, asks and submits; the outcome goes back', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+
+    const published = await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_1', ...SAMPLE } as never)
+    expect(String((published as { result?: unknown }).result)).toMatch(/Published "Open questions for the sample initiative"/)
+    expect(world.files.has('/proj/Reviews/pending/INIT-9-open-questions/pack.json')).toBe(true)
+    expect(world.files.has('/proj/Reviews/README.md')).toBe(true)
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const pane = await $.ui.mount({ plugin: 'review-desk', surface, ...PANE })
+      // The new review opened by itself, on its first card.
+      expect(await shows(pane, /Report an inappropriate ad/)).toBe(true)
+      expect(await shows(pane, /recommended/)).toBe(true)
+      await pane.unmount()
+    }
+
+    const pane = await $.ui.mount({ plugin: 'review-desk', surface: 'desktop', ...PANE })
+    await pane.press({ key: 'choice-Q-13-yes' })
+    const draft = JSON.parse(world.files.get('/proj/Reviews/pending/INIT-9-open-questions/draft.json')!)
+    expect(draft.responses['Q-13'].choice).toBe('yes')
+
+    // A comment typed but not entered is kept when the owner moves on.
+    await pane.input({ key: 't:Q-13', text: 'and log it', kind: 'change' })
+    await pane.press({ key: 'card-next' })
+    expect(await shows(pane, /Use one save slot/)).toBe(true)
+    await pane.press({ key: 'verb-ADR-1-approve' })
+
+    // A quick question is answered in the pane from the review.
+    // Questions belong to the card: its Ask section opens, answers, and stays with that card.
+    expect(await pane.find({ key: 'ask:ADR-1#0' })).toBeUndefined()
+    await pane.press({ key: 'ask-toggle-ADR-1' })
+    await pane.input({ key: 'ask:ADR-1#0', text: 'Why one slot?' })
+    expect(await shows(pane, /Because the report says so/)).toBe(true)
+    // Asked, the question field is drawn afresh and empty.
+    expect(await pane.find({ key: 'ask:ADR-1#0' })).toBeUndefined()
+    expect((await pane.find({ key: 'ask:ADR-1#1' }))?.text ?? '').toBe('')
+    expect(await shows(pane, /1 asked/)).toBe(true)
+    await pane.press({ key: 'card-prev' })
+    expect(await shows(pane, /Why one slot\?/)).toBe(false)
+    await pane.press({ key: 'card-next' })
+
+    // The explainer draws its scene and steps through.
+    await pane.select({ key: 'jump-card', value: '4' })
+    expect(await shows(pane, /Step 1 of 2/)).toBe(true)
+    expect(await shows(pane, /The drop/)).toBe(true)
+    expect(await shows(pane, /Day 1: 40/)).toBe(true)
+    await pane.press({ key: 'part-done-E1' })
+    expect(await shows(pane, /The fix/)).toBe(true)
+
+    // Submitting with cards left asks first, then moves the review and hands it back.
+    await pane.press({ key: 'submit' })
+    expect(await shows(pane, /Submit anyway/)).toBe(true)
+    await pane.press({ key: 'submit-anyway' })
+    await pane.unmount()
+
+    expect(world.files.has('/proj/Reviews/pending/INIT-9-open-questions/pack.json')).toBe(false)
+    const outcome = world.files.get('/proj/Reviews/reviewed/INIT-9-open-questions/outcome.md') ?? ''
+    expect(outcome).toMatch(/Yes, from the ad itself/)
+    expect(outcome).toMatch(/Comment:\*\* and log it/)
+    expect(outcome).toMatch(/Decision:\*\* Approved/)
+    expect(outcome).toMatch(/Why one slot\?/)
+    expect(world.prompts.some(p => /reviewed\/INIT-9-open-questions\/outcome\.md/.test(p))).toBe(true)
+
+    // The list shows it under Reviewed, and it opens read-only with the response.
+    const list = await $.ui.mount({ plugin: 'review-desk', surface: 'terminal', ...PANE })
+    await list.press({ key: 'tab-reviewed' })
+    expect(await shows(list, /Open questions for the sample initiative/)).toBe(true)
+    await list.press({ key: 'open-reviewed-INIT-9-open-questions' })
+    expect(await shows(list, /your response/i)).toBe(true)
+    expect(await list.find({ key: 'submit' })).toBeUndefined()
+    await list.unmount()
+  })
+
+  test('findings, plans and read-throughs answer from the panel on every surface that takes input', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_3', ...SAMPLE } as never)
+    const draftOf = () => JSON.parse(world.files.get('/proj/Reviews/pending/INIT-9-open-questions/draft.json')!)
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const pane = await $.ui.mount({ plugin: 'review-desk', surface, ...PANE })
+      await pane.select({ key: 'jump-card', value: '2' })
+      expect(await shows(pane, /HIGH/)).toBe(true)
+      expect(await shows(pane, /The record says/)).toBe(true)
+      // The second surface sees the first one's answers: a second press on a choice clears it.
+      await pane.press({ key: 'verb-F01-discuss' })
+      await pane.input({ key: 't:F01', text: `which note? (${surface})` })
+      expect(draftOf().responses.F01.choice).toBe(surface === 'terminal' ? 'discuss' : undefined)
+      expect(draftOf().responses.F01.text).toBe(`which note? (${surface})`)
+
+      await pane.press({ key: 'card-next' })
+      await pane.press({ key: 'row-P1-r2' })
+      expect(draftOf().responses.P1.rows.r2).toBe(surface === 'terminal' ? false : true)
+      expect(await pane.find({ key: 'verb-P1-go' })).toBeDefined()
+
+      await pane.select({ key: 'jump-card', value: '5' })
+      expect(await shows(pane, /Your call:\*\* Is the greeting right\?/)).toBe(true)
+      await pane.press({ key: 'part-done-R1' })
+      if (surface === 'terminal') {
+        expect(await shows(pane, /Outro/)).toBe(true)
+        expect(draftOf().responses['R1/s1'].isDone).toBe(true)
+      } else expect(draftOf().responses['R1/s1'].isDone).toBe(false)
+      await pane.press({ key: 'back' })
+      expect(await shows(pane, /Waiting · 1/)).toBe(true)
+      await pane.press({ key: `open-pending-INIT-9-open-questions` })
+      await pane.unmount()
+    }
+  })
+
+  test('a view saved by an older version still draws', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    memoryWorld(on)
+    // 0.1.0 kept no askOpen, and $.state outlives a reload: serve the view without it, as an old session would.
+    on('state.get', async ($, e, next) => {
+      const got = (await next(e)) as { value?: { value?: Record<string, unknown>; version: number } }
+      const stored = got.value?.value
+      if ((e as { key?: string }).key !== 'view' || !stored) return got as never
+      const { askOpen: _gone, ...older } = stored
+      return { ...got, value: { ...got.value, value: older } } as never
+    })
+    await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_4', ...SAMPLE } as never)
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const pane = await $.ui.mount({ plugin: 'review-desk', surface, ...PANE })
+      expect(await shows(pane, /Report an inappropriate ad/)).toBe(true)
+      expect(await shows(pane, /ask about this card/i)).toBe(true)
+      await pane.unmount()
+    }
+  })
+
+  test('a bad pack is refused with what to fix, and nothing is written', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    const res = await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_2', title: 'x', cards: [] } as never)
+    expect(JSON.stringify(res)).toMatch(/at least one card/)
+    expect([...world.files.keys()].length).toBe(0)
+  })
+
+  test('with nothing published, the desk says how to start', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    memoryWorld(on)
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const pane = await $.ui.mount({ plugin: 'review-desk', surface, ...PANE })
+      expect(await shows(pane, /Nothing is waiting for review/)).toBe(true)
+      await pane.unmount()
+    }
+  })
+})
