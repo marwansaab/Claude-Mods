@@ -351,8 +351,9 @@ describe('the desk', () => {
     const world = memoryWorld(on)
     await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_5', ...SAMPLE } as never)
     const pane = await $.ui.mount({ plugin: 'review-desk', surface: 'desktop', ...PANE })
-    await pane.input({ key: 'ask:Q-13#0', text: 'Do other games let players report ads?', kind: 'change' })
-    await pane.press({ key: 'ask-send-Q-13' })
+    // Enter, or the field's own send button, sends: there is no other button.
+    expect(await pane.find({ key: 'ask-send-Q-13' })).toBeUndefined()
+    await pane.input({ key: 'ask:Q-13#0', text: 'Do other games let players report ads?' })
     expect(await shows(pane, /Claude is looking into it/)).toBe(true)
     // The question shows as a bubble (an Svg on the desktop, its words in the alt text).
     expect(await shows(pane, /Do other games let players report ads\?/)).toBe(true)
