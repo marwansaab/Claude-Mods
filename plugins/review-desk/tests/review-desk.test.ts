@@ -231,15 +231,23 @@ describe('the desk', () => {
     await pane.press({ key: 'verb-ADR-1-approve' })
 
     // A quick question is answered in the pane from the review.
-    await pane.input({ key: 'ask', text: 'Why one slot?' })
+    // Questions belong to the card: its Ask section opens, answers, and stays with that card.
+    expect(await pane.find({ key: 'ask:ADR-1' })).toBeUndefined()
+    await pane.press({ key: 'ask-toggle-ADR-1' })
+    await pane.input({ key: 'ask:ADR-1', text: 'Why one slot?' })
     expect(await shows(pane, /Because the report says so/)).toBe(true)
+    expect(await shows(pane, /1 asked/)).toBe(true)
+    await pane.press({ key: 'card-prev' })
+    expect(await shows(pane, /Why one slot\?/)).toBe(false)
+    await pane.press({ key: 'card-next' })
 
     // The explainer draws its scene and steps through.
     await pane.select({ key: 'jump-card', value: '4' })
-    expect(await shows(pane, /Step 1 of 2: The drop/)).toBe(true)
+    expect(await shows(pane, /Step 1 of 2/)).toBe(true)
+    expect(await shows(pane, /The drop/)).toBe(true)
     expect(await shows(pane, /Day 1: 40/)).toBe(true)
     await pane.press({ key: 'part-done-E1' })
-    expect(await shows(pane, /Step 2 of 2: The fix/)).toBe(true)
+    expect(await shows(pane, /The fix/)).toBe(true)
 
     // Submitting with cards left asks first, then moves the review and hands it back.
     await pane.press({ key: 'submit' })
@@ -260,7 +268,7 @@ describe('the desk', () => {
     await list.press({ key: 'tab-reviewed' })
     expect(await shows(list, /Open questions for the sample initiative/)).toBe(true)
     await list.press({ key: 'open-reviewed-INIT-9-open-questions' })
-    expect(await shows(list, /Your response/)).toBe(true)
+    expect(await shows(list, /your response/i)).toBe(true)
     expect(await list.find({ key: 'submit' })).toBeUndefined()
     await list.unmount()
   })
@@ -291,11 +299,11 @@ describe('the desk', () => {
       expect(await shows(pane, /Your call:\*\* Is the greeting right\?/)).toBe(true)
       await pane.press({ key: 'part-done-R1' })
       if (surface === 'terminal') {
-        expect(await shows(pane, /2 of 2: Outro/)).toBe(true)
+        expect(await shows(pane, /Outro/)).toBe(true)
         expect(draftOf().responses['R1/s1'].isDone).toBe(true)
       } else expect(draftOf().responses['R1/s1'].isDone).toBe(false)
       await pane.press({ key: 'back' })
-      expect(await shows(pane, /Pending · 1/)).toBe(true)
+      expect(await shows(pane, /Waiting · 1/)).toBe(true)
       await pane.press({ key: `open-pending-INIT-9-open-questions` })
       await pane.unmount()
     }

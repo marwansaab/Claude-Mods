@@ -116,24 +116,68 @@ export function deskHeaderSvg(w: number, pending: number, reviewed: number, answ
   return { svg: svgDoc(w, h, body), height: h, alt: `Review desk: ${words}; ${sub}.` }
 }
 
-/** One dot per card, coloured by the owner's progress, the current one ringed. */
-export function stripSvg(w: number, states: CardState[], current: number): Drawn {
+/** One numbered step per card: a tick when answered, amber when begun, the current one ringed. */
+export function stepperSvg(w: number, states: CardState[], current: number): Drawn {
   const n = states.length
-  const h = 30
-  const gap = Math.min(26, Math.max(8, (w - 24) / Math.max(1, n)))
-  const r = Math.max(3, Math.min(7, gap / 2 - 2))
-  const x0 = 12 + r
-  const dots = states
+  const done = states.filter(s => s === 'done').length
+  const alt = `Card ${current + 1} of ${n}; ${done} answered.`
+  const roomy = (w - 28) / Math.max(1, n) >= 30
+  if (!roomy) {
+    // Too many cards for numbers: small dots on a line.
+    const gap = Math.max(7, (w - 24) / Math.max(1, n))
+    const r = Math.max(2.5, Math.min(5, gap / 2 - 1.5))
+    const dots = states
+      .map((s, i) => {
+        const cx = 12 + r + i * gap
+        const cls = s === 'done' ? 'on' : s === 'partial' ? 'half' : 'off'
+        return (i === current ? `<circle cx="${cx}" cy="14" r="${r + 3}" fill="none" stroke-width="2" class="cur"/>` : '') + `<circle cx="${cx}" cy="14" r="${r}" class="${cls}"/>`
+      })
+      .join('')
+    return { svg: svgDoc(w, 28, dots), height: 28, alt }
+  }
+  const gap = Math.min(64, (w - 28) / n)
+  const r = 12
+  const x0 = 14 + r
+  const line = n > 1 ? `<line x1="${x0}" y1="20" x2="${x0 + (n - 1) * gap}" y2="20" stroke-width="2" class="ln"/>` : ''
+  const steps = states
     .map((s, i) => {
       const cx = x0 + i * gap
-      const cls = s === 'done' ? 'on' : s === 'partial' ? 'half' : 'off'
-      const ring = i === current ? `<circle cx="${cx}" cy="15" r="${r + 3.5}" fill="none" stroke-width="2" class="cur pulse"/>` : ''
-      return `${ring}<circle cx="${cx}" cy="15" r="${r}" class="${cls} pop" ${delay(0.03 * i)}/>`
+      const isCur = i === current
+      const ring = isCur ? `<circle cx="${cx}" cy="20" r="${r + 4.5}" fill="none" stroke-width="2.5" class="cur"/>` : ''
+      const disc =
+        s === 'done'
+          ? `<circle cx="${cx}" cy="20" r="${r}" class="on"/><path d="M ${cx - 5} ${20.5} l 3.5 3.5 l 6.5 -7" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`
+          : s === 'partial'
+            ? `<circle cx="${cx}" cy="20" r="${r}" class="half"/><text x="${cx}" y="24.2" font-size="11.5" font-weight="700" text-anchor="middle" fill="#fff">${i + 1}</text>`
+            : `<circle cx="${cx}" cy="20" r="${r}" class="card" stroke-width="1.5"/><text x="${cx}" y="24.2" font-size="11.5" font-weight="${isCur ? 700 : 500}" text-anchor="middle" class="${isCur ? 'ink' : 'dim'}">${i + 1}</text>`
+      return `<g class="pop" ${delay(0.04 * i)}>${ring}${disc}</g>`
     })
     .join('')
-  const line = n > 1 ? `<line x1="${x0}" y1="15" x2="${x0 + (n - 1) * gap}" y2="15" stroke-width="2" class="ln"/>` : ''
-  const done = states.filter(s => s === 'done').length
-  return { svg: svgDoc(Math.max(w, x0 + n * gap), h, line + dots), height: h, alt: `Card ${current + 1} of ${n}; ${done} answered.` }
+  return { svg: svgDoc(w, 40, line + steps), height: 40, alt }
+}
+
+/** A small ring that fills with the share of cards answered. */
+export function ringSvg(answered: number, total: number): Drawn {
+  const size = 52
+  const r = 21
+  const share = total ? answered / total : 0
+  const c = size / 2
+  const arc =
+    share >= 1
+      ? `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke-width="5" class="s-good"/>`
+      : share > 0
+        ? (() => {
+            const a = share * 2 * Math.PI - Math.PI / 2
+            const x = c + r * Math.cos(a)
+            const y = c + r * Math.sin(a)
+            return `<path d="M ${c} ${c - r} A ${r} ${r} 0 ${share > 0.5 ? 1 : 0} 1 ${x.toFixed(2)} ${y.toFixed(2)}" pathLength="1" fill="none" stroke-width="5" stroke-linecap="round" class="s-good draw"/>`
+          })()
+        : ''
+  const body =
+    `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke-width="5" class="ln"/>` +
+    arc +
+    `<text x="${c}" y="${c + 4.5}" font-size="13" font-weight="700" text-anchor="middle" class="ink">${answered}/${total}</text>`
+  return { svg: svgDoc(size, size, body), height: size, alt: `${answered} of ${total} cards answered` }
 }
 
 // ---------- explainer scenes ----------

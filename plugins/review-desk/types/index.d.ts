@@ -182,6 +182,8 @@ export type Ask = {
   id: string
   question: string
   answer?: string
+  /** The card it was asked about (absent on questions asked before cards kept their own threads). */
+  card?: string
   /** What it was asked about: a card title and part. */
   about?: string
   at: string
@@ -222,7 +224,10 @@ export type DeskView = {
   part: Record<string, number>
   isSummaryOpen: boolean
   isConfirming: boolean
-  isAsking: boolean
+  /** The card whose quick answer is being written. */
+  askingCard?: string
+  /** Cards whose "Ask about this card" section is open. */
+  askOpen: Record<string, boolean>
   showAllAsks: boolean
   message?: string
 }

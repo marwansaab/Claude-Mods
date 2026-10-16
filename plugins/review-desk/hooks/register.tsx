@@ -30,7 +30,7 @@ const START_VIEW: DeskView = {
   part: {},
   isSummaryOpen: false,
   isConfirming: false,
-  isAsking: false,
+  askOpen: {},
   showAllAsks: false,
 }
 
@@ -244,7 +244,7 @@ async function ask($: EngineInterface, question: string, via: 'quick' | 'session
     card.type === 'explainer' ? card.steps[v.part[card.id] ?? 0]?.title : card.type === 'read' ? card.sections[v.part[card.id] ?? 0]?.title : undefined
   const about = [card.title, part].filter(Boolean).join(': ')
   const at = await $.clock.now()
-  const entry: Ask = { id: `a${at.toString(36)}`, question: q, about, at: new Date(at).toISOString(), via }
+  const entry: Ask = { id: `a${at.toString(36)}`, question: q, card: card.id, about, at: new Date(at).toISOString(), via }
   await recordAsk($, entry)
 
   if (via === 'session') {
@@ -257,7 +257,7 @@ async function ask($: EngineInterface, question: string, via: 'quick' | 'session
     return
   }
 
-  await update($, view, x => ({ ...x, isAsking: true }))
+  await update($, view, x => ({ ...x, askingCard: card.id, askOpen: { ...x.askOpen, [card.id]: true } }))
   try {
     const model = cfg.askModel || (await $.session.model())
     const result = await $.model.complete({
@@ -276,7 +276,7 @@ async function ask($: EngineInterface, question: string, via: 'quick' | 'session
   } catch {
     await recordAsk($, { ...entry, answer: 'The quick answer failed. Try "Ask Claude in the session".', isError: true })
   } finally {
-    await update($, view, x => ({ ...x, isAsking: false }))
+    await update($, view, x => ({ ...x, askingCard: undefined }))
   }
 }
 
@@ -302,7 +302,9 @@ async function submit($: EngineInterface): Promise<void> {
 async function openPack($: EngineInterface, status: DeskView['tab'], id: string): Promise<void> {
   const loaded = await loadPack($, await rootOf($), status, id)
   await update($, open, () => loaded ?? null)
-  await update($, view, x => ({ ...START_VIEW, tab: x.tab, openId: id, openStatus: status, isSummaryOpen: !!loaded?.pack.summary }))
+  // The summary opens on a review not yet started; after that it stays out of the way.
+  const isFresh = !!loaded && Object.keys(loaded.draft.responses).length === 0 && status === 'pending'
+  await update($, view, x => ({ ...START_VIEW, tab: x.tab, openId: id, openStatus: status, isSummaryOpen: isFresh && !!loaded?.pack.summary }))
 }
 
 async function reloadOpen($: EngineInterface): Promise<void> {
@@ -336,13 +338,19 @@ async function toggleRow($: EngineInterface, cardId: string, rowId: string): Pro
 
 async function commitField($: EngineInterface, key: string, text: string): Promise<void> {
   await update($, typing, t => Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)))
-  if (key === 'ask') await ask($, text, 'quick')
+  if (key.startsWith('ask:')) await ask($, text, 'quick')
   else if (key.startsWith('t:')) await respond($, key.slice(2), { text })
 }
 
+/** Asks what is typed in the open card's question field. */
 async function askTyped($: EngineInterface, via: 'quick' | 'session'): Promise<void> {
-  const typed = (await read($, typing)).ask ?? ''
-  await update($, typing, t => ({ ...t, ask: '' }))
+  const current = await read($, open)
+  const v = await read($, view)
+  const card = current?.pack.cards[Math.min(v.card, current.pack.cards.length - 1)]
+  if (!card) return
+  const key = `ask:${card.id}`
+  const typed = (await read($, typing))[key] ?? ''
+  await update($, typing, t => Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)))
   if (!typed.trim()) {
     $.ui.toast('Type a question first')
     return
@@ -367,14 +375,14 @@ function actionsFor($: EngineInterface): Actions {
     refresh: () => run(() => reloadOpen($)),
     openPack: (status, id) => run(() => openPack($, status, id)),
     closePack: () => run(() => closePack($)),
-    goCard: n => run(() => moveTo($, x => ({ ...x, card: Math.max(0, n), isConfirming: false }))),
+    goCard: n => run(() => moveTo($, x => ({ ...x, card: Math.max(0, n), isConfirming: false, showAllAsks: false }))),
     goPart: (cardId, n) => run(() => moveTo($, x => ({ ...x, part: { ...x.part, [cardId]: Math.max(0, n) } }))),
     respond: (key, patch) => run(() => respond($, key, patch)),
     toggleRow: (cardId, rowId) => run(() => toggleRow($, cardId, rowId)),
     type: (key, text) => run(() => update($, typing, t => ({ ...t, [key]: text }))),
     commit: (key, text) => run(() => commitField($, key, text)),
     toggleSummary: () => run(() => update($, view, x => ({ ...x, isSummaryOpen: !x.isSummaryOpen }))),
-    ask: (question, via) => run(() => ask($, question, via)),
+    toggleAsk: cardId => run(() => update($, view, x => ({ ...x, askOpen: { ...x.askOpen, [cardId]: !x.askOpen[cardId] } }))),
     askTyped: via => run(() => askTyped($, via)),
     showAllAsks: () => run(() => update($, view, x => ({ ...x, showAllAsks: true }))),
     submit: () => run(() => submit($)),

@@ -1,6 +1,6 @@
 {
   "name": "review-desk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A review desk panel (/reviews): Claude publishes open questions, decisions, findings, write plans, animated explainers and read-throughs; you answer, ask and submit in the panel, and the outcome goes back to Claude.",
   "author": {
     "name": "Marwan Saab",

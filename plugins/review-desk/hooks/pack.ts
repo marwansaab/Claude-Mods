@@ -488,7 +488,7 @@ export function packDigest(pack: Pack, focus?: Card): string {
 }
 
 export const ASK_SYSTEM = [
-  'You answer the owner\'s question about a review they are working through in a side panel.',
+  'You answer the owner\'s question about one card of a review they are working through in a side panel. The card is given first; the rest of the review is context.',
   'Answer from the review below. When it does not hold the answer, say so plainly and suggest asking in the session, where Claude can read the project and its notes.',
   'Be brief: a few short sentences or bullets. Plain words, no preamble. Never invent a fact, figure or source.',
 ].join(' ')
