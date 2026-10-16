@@ -24,7 +24,6 @@ export type Actions = {
   type: (key: string, text: string) => void
   commit: (key: string, text: string) => void
   toggleSummary: () => void
-  askTyped: () => void
   showAllAsks: () => void
   submit: () => void
   confirm: (isOn: boolean) => void
@@ -576,12 +575,13 @@ function chatBlock(ctx: Ctx, card: Card): RenderElement {
       {asks.length > shown.length && <Button key={`ask-all-${card.id}`} plain dimColor label={`Show ${asks.length - shown.length} earlier`} onPress={act.showAllAsks} />}
       {shown.flatMap(a => [questionBubble(ctx, a), reply(ctx, a)])}
       {'Input' in ui && (
-        <Box key={`composer-${card.id}`} flexDirection="row" alignItems="center" gap={1} borderStyle="round" borderDimColor paddingX={1}>
-          <Box flexGrow={1} flexShrink={1} flexDirection="column">
+        <Box key={`composer-${card.id}`} flexDirection="column" alignItems="stretch" width="100%" borderStyle="round" borderDimColor paddingX={1}>
+          {/* The field takes no width of its own: it is stretched across the composer. */}
+          <Box flexDirection="column" alignItems="stretch" width="100%">
             {/* Keyed by the count asked: each question asked draws a fresh, empty field. */}
-            {field(ctx, `ask:${card.id}#${asks.length}`, '', '', 'Ask Claude about this card…', 'send')}
+            {/* The field's own button (and Enter) sends: one way to send, as in Claude Desktop. */}
+            {field(ctx, `ask:${card.id}#${asks.length}`, '', '', 'Ask Claude about this card…', '↑')}
           </Box>
-          <Button key={`ask-send-${card.id}`} variant="primary" label="↑" onPress={() => act.askTyped()} />
         </Box>
       )}
     </Box>

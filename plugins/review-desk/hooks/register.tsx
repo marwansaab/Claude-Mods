@@ -331,22 +331,6 @@ async function commitField($: EngineInterface, key: string, text: string): Promi
   else if (key.startsWith('t:')) await respond($, key.slice(2), { text })
 }
 
-/** Asks what is typed in the open card's question field. */
-async function askTyped($: EngineInterface): Promise<void> {
-  const current = await read($, open)
-  const v = viewOf(await read($, view))
-  const card = current?.pack.cards[Math.min(v.card, current.pack.cards.length - 1)]
-  if (!card) return
-  const key = `ask:${card.id}`
-  const typed = (await read($, typing))[key] ?? ''
-  await update($, typing, t => Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)))
-  if (!typed.trim()) {
-    $.ui.toast('Type a question first')
-    return
-  }
-  await ask($, typed)
-}
-
 async function resend($: EngineInterface): Promise<void> {
   const current = await read($, open)
   const v = viewOf(await read($, view))
@@ -395,7 +379,6 @@ function actionsFor($: EngineInterface): Actions {
     type: (key, text) => run(() => update($, typing, t => ({ ...t, [fieldKey(key)]: text }))),
     commit: (key, text) => run(() => commitField($, fieldKey(key), text)),
     toggleSummary: () => run(() => update($, view, x => ({ ...x, isSummaryOpen: !x.isSummaryOpen }))),
-    askTyped: () => run(() => askTyped($)),
     showAllAsks: () => run(() => update($, view, x => ({ ...x, showAllAsks: true }))),
     submit: () => run(() => submit($)),
     confirm: isOn => run(() => moveTo($, x => ({ ...x, isConfirming: isOn }))),
