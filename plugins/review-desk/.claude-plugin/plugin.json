@@ -1,0 +1,40 @@
+{
+  "name": "review-desk",
+  "version": "0.1.0",
+  "description": "A review desk panel (/reviews): Claude publishes open questions, decisions, findings, write plans, animated explainers and read-throughs; you answer, ask and submit in the panel, and the outcome goes back to Claude.",
+  "author": {
+    "name": "Marwan Saab",
+    "url": "https://github.com/marwansaab"
+  },
+  "homepage": "https://github.com/marwansaab/Claude-Mods/tree/main/plugins/review-desk",
+  "repository": "https://github.com/marwansaab/Claude-Mods",
+  "license": "MIT",
+  "keywords": ["review", "obsidian", "vault", "decisions", "questions", "explainer", "panel"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "folder": {
+      "type": "string",
+      "title": "Reviews folder",
+      "description": "Folder in the project, relative to its root, that holds pending/ and reviewed/",
+      "default": "Reviews"
+    },
+    "autoOpen": {
+      "type": "boolean",
+      "title": "Open the desk when Claude publishes a review",
+      "description": "Opens the panel on the new review, unless you are in the middle of another one",
+      "default": true
+    },
+    "handOff": {
+      "type": "boolean",
+      "title": "Hand submitted reviews to Claude",
+      "description": "On submit, queue a prompt asking Claude to apply the outcome (it still asks before writing)",
+      "default": true
+    },
+    "askModel": {
+      "type": "string",
+      "title": "Model for quick answers",
+      "description": "Model alias or id for the panel's quick answers; empty uses the session's model",
+      "default": ""
+    }
+  }
+}
