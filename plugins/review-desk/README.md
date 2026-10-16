@@ -19,9 +19,7 @@ There are no HTML pages to build, no browser to open and no notes to export and 
   | **Read-through** | read a long text section by section, with "Your call" flags, a note and a *Reviewed* tick each |
 
 - **Animated explainers.** Claude sends the scene as data and the desk draws it, on the desktop, as animated SVG: cards, flow, list, timeline, funnel, bars with a threshold, number tiles, a comparison table and a 2 × 2 matrix. Claim chips carry their grade (A–D), and hovering one shows the claim. In the terminal the same scene is drawn as text.
-- **Ask about the card in front of you.** Each card has its own *Ask about this card* section, framed under the card, which keeps that card's questions and answers together.
-  - **Quick answer** is written in the panel at once, from the card and the rest of the review.
-  - **Ask Claude in the session** sends the question to the conversation. Claude researches it with everything the session has (the web, your project, its notes) and puts the answer back on the card, with its sources.
+- **Ask Claude about the card in front of you.** Under each card is a short chat, drawn like Claude Desktop's: your questions in bubbles on the right, Claude's answers on the left, and a box to type in. Each question goes to Claude in the session, which researches it with everything the session has (the web, your project, its notes) and puts the answer back under the card, with its sources. Each card keeps its own conversation.
 - **One card at a time.** A review opens on a numbered stepper (a tick for each card answered), *Previous* and *Next* around a jump list, and the current card in a frame coloured by its type: what the card says, its evidence, then *Your answer*. Submitting sits at the bottom.
 - **Copy.** On the desktop, card text can be selected and copied like any text; a link in it shows its address in brackets so you can copy that too. Lists made mostly of links (evidence, sources) stay clickable instead. Each card and each answer also has a *Copy* button that puts the whole thing on your clipboard as Markdown.
 - **Saved as you go.** Every answer is written to `draft.json` straight away. Close the panel, or end the session, and carry on later.
@@ -55,7 +53,6 @@ To start, ask Claude something like *"put the open questions for this initiative
 | Reviews folder | `Reviews` | The folder in the project, relative to its root, that holds `pending/` and `reviewed/` |
 | Open the desk when Claude publishes a review | on | Opens the panel on the new review, unless you are in the middle of another one |
 | Hand submitted reviews to Claude | on | On submit, queues a prompt asking Claude to apply the outcome |
-| Model for quick answers | empty (the session's model) | A model alias or id for the panel's quick answers, for example `haiku` |
 | Selectable text | on | On the desktop, draws card text so it can be selected; off draws it as the app's own text, with every link clickable but nothing selectable |
 
 ## How it works
@@ -104,7 +101,7 @@ To start, ask Claude something like *"put the open questions for this initiative
 ## Known limits
 
 - **Desktop and terminal.** Animated scenes draw on the desktop. The terminal shows them as text, and the mobile app, which has no text fields yet, shows reviews without the answer boxes.
-- **Quick answers know only the review.** They are focused on the open card and cannot search the web or read your project; use *Ask Claude in the session* for that. A session answer arrives once Claude has finished its turn.
+- **An answer arrives when Claude has finished its turn.** Your question is sent to the session as a prompt (you see it in the conversation), and Claude answers once it is free; a question asked while Claude is busy waits its turn.
 - **Selectable text is drawn by the mod.** The app's own text elements cannot be selected, so on the desktop card text is drawn as SVG text. It wraps by an estimate of letter widths, keeps simple Markdown (bold, italic, code, lists, quotes, headings), and links in it are not clickable: their addresses show in brackets. Blocks that are mostly links stay the app's own Markdown, clickable but not selectable. Turn *Selectable text* off to draw everything the app's way.
 - **The Copy buttons use the system clipboard on the desktop**, as the desktop app has no clipboard path for plugins yet: PowerShell `Set-Clipboard` on Windows, `pbcopy` on macOS, `wl-copy` or `xclip` on Linux.
 - **Text you type is saved when you press Enter or move on.** Typing and then closing the window straight away can lose the last field.

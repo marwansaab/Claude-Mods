@@ -187,6 +187,7 @@ export type Ask = {
   /** What it was asked about: a card title and part. */
   about?: string
   at: string
+  /** `quick`: answered in the panel by older versions; every question now goes to the session. */
   via: 'quick' | 'session'
   isError?: boolean
   /** When Claude in the session put its answer on the card. */
@@ -228,8 +229,6 @@ export type DeskView = {
   part: Record<string, number>
   isSummaryOpen: boolean
   isConfirming: boolean
-  /** The card whose quick answer is being written. */
-  askingCard?: string
   /** Cards whose "Ask about this card" section is open. */
   askOpen: Record<string, boolean>
   showAllAsks: boolean

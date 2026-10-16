@@ -486,47 +486,6 @@ export function handOffPrompt(pack: Pack, outcomePath: string): string {
   ].join('\n')
 }
 
-// ---------- asking ----------
-
-const clip = (t: string | undefined, n: number) => (!t ? '' : t.length > n ? `${t.slice(0, n)}…` : t)
-
-/** The pack in plain text, as context for a quick question about it. */
-export function packDigest(pack: Pack, focus?: Card): string {
-  const lines = [`Review: ${pack.title}`, clip(pack.summary, 1200)]
-  const claimText = (ids?: string[]) =>
-    (ids ?? [])
-      .map(id => pack.claims?.find(c => c.id === id))
-      .filter((c): c is Claim => !!c)
-      .map(c => `  ${c.id} [${c.grade ?? '?'}] ${c.text}${c.source ? ` (${c.source})` : ''}`)
-  const cardText = (c: Card, n: number): string[] => {
-    const head = `${c.type} ${c.id}: ${c.title}`
-    switch (c.type) {
-      case 'question':
-        return [head, clip(c.prompt, n), clip(c.context, n), ...(c.options ?? []).map(o => `  option ${o.id}: ${o.label}${o.description ? ` (${o.description})` : ''}`), ...claimText(c.claims)]
-      case 'decision':
-        return [head, clip(c.proposal, n), clip(c.rationale, n), ...(c.alternatives ?? []).map(a => `  alternative: ${a.label}${a.reason ? ` (${a.reason})` : ''}`), clip(c.consequences, n), ...claimText(c.claims)]
-      case 'finding':
-        return [head, c.quote ? `  quote: ${c.quote}` : '', clip(c.body, n), c.suggestion ? `  suggestion: ${c.suggestion}` : '', ...claimText(c.claims)]
-      case 'plan':
-        return [head, clip(c.intro, n), ...c.rows.map(r => `  ${r.action} ${r.target}${r.summary ? `: ${r.summary}` : ''}`)]
-      case 'explainer':
-        return [head, clip(c.intro, n), ...c.steps.flatMap(s => [`  step: ${s.title}: ${clip(s.caption, n)}`, ...claimText([...(s.claims ?? []), ...sceneClaims(s.scene)])])]
-      case 'read':
-        return [head, clip(c.intro, n), ...c.sections.map(s => `  section ${s.title}: ${clip(s.body, n)}`)]
-    }
-  }
-  if (focus) lines.push('', 'The card being read now:', ...cardText(focus, 6000))
-  lines.push('', 'All cards:')
-  for (const c of pack.cards) if (c !== focus) lines.push(...cardText(c, 400))
-  return lines.filter(l => l !== '').join('\n').slice(0, 60_000)
-}
-
-export const ASK_SYSTEM = [
-  'You answer the owner\'s question about one card of a review they are working through in a side panel. The card is given first; the rest of the review is context.',
-  'Answer from the review below. When it does not hold the answer, say so plainly and suggest asking in the session, where Claude can read the project and its notes.',
-  'Be brief: a few short sentences or bullets. Plain words, no preamble. Never invent a fact, figure or source.',
-].join(' ')
-
 // ---------- the tool Claude publishes with ----------
 
 const tone = { type: 'string', enum: TONES as unknown as string[] }

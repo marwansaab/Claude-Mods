@@ -187,3 +187,33 @@ export function markdownSvg(md: string, width: number, isDim = false): TextDrawn
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${STYLE}<g${isDim ? ' class="d"' : ''}>${body}</g></svg>`
   return { svg, height, alt: plain.join('\n') }
 }
+
+/**
+ * The owner's question as a chat bubble, sized to its text up to `maxWidth`: drawn as SVG so it is
+ * selectable and follows the light or dark theme.
+ */
+export function bubbleSvg(text: string, maxWidth: number): TextDrawn & { width: number } {
+  const padX = 14
+  const padY = 9
+  const runs: Run[] = [{ text: text.replace(/\s+/g, ' ').trim(), style: 'n' }]
+  const lines = wrapRuns(runs, Math.max(80, maxWidth - padX * 2), FONT)
+  const widest = Math.max(...lines.map(l => l.reduce((w, p) => w + p.w, 0)), 20)
+  const width = Math.min(maxWidth, Math.ceil(widest + padX * 2 + 6))
+  const height = padY * 2 + lines.length * LINE
+  const body = lines
+    .map((l, i) => `<text x="${padX}" y="${(padY + (i + 1) * LINE - LINE * 0.3).toFixed(1)}" xml:space="preserve">${tspans(l)}</text>`)
+    .join('')
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${STYLE}<style>.bub{fill:#f0eee6}@media (prefers-color-scheme: dark){.bub{fill:#393937}}</style><rect x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="16" class="bub"/>${body}</svg>`
+  return { svg, height, width, alt: text }
+}
+
+/** Three dots breathing in turn while Claude works on an answer; still when motion is reduced. */
+export function thinkingSvg(): TextDrawn & { width: number } {
+  const dot = (cx: number, d: number) => `<circle cx="${cx}" cy="10" r="4" class="t" style="animation-delay:${d}s"/>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="20" viewBox="0 0 44 20"><style>
+.t{fill:#d97757;animation:rd-breathe 1.2s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes rd-breathe{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+@media (prefers-reduced-motion: reduce){.t{animation:none;opacity:.7}}
+</style>${dot(8, 0)}${dot(22, 0.2)}${dot(36, 0.4)}</svg>`
+  return { svg, height: 20, width: 44, alt: 'Claude is working on an answer' }
+}

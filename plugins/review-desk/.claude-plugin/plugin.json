@@ -1,6 +1,6 @@
 {
   "name": "review-desk",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "A review desk panel (/reviews): Claude publishes open questions, decisions, findings, write plans, animated explainers and read-throughs; you answer, ask and submit in the panel, and the outcome goes back to Claude.",
   "author": {
     "name": "Marwan Saab",
@@ -37,12 +37,6 @@
       "title": "Hand submitted reviews to Claude",
       "description": "On submit, queue a prompt asking Claude to apply the outcome (it still asks before writing)",
       "default": true
-    },
-    "askModel": {
-      "type": "string",
-      "title": "Model for quick answers",
-      "description": "Model alias or id for the panel's quick answers; empty uses the session's model",
-      "default": ""
     },
     "selectableText": {
       "type": "boolean",
