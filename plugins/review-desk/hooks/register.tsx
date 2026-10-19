@@ -46,7 +46,7 @@ const fieldKey = (key: string) => key.replace(/#\d+$/, '')
 
 /** The view as stored, with any field an older version of the mod did not keep filled in. */
 function viewOf(v: Partial<DeskView> | undefined): DeskView {
-  return { ...START_VIEW, ...v, part: v?.part ?? {}, askOpen: v?.askOpen ?? {} }
+  return { ...START_VIEW, ...v, part: v?.part ?? {}, askOpen: v?.askOpen ?? {}, planView: v?.planView ?? {} }
 }
 
 /** The person's settings: set by `register` on every load, read by the functions below. */
@@ -325,6 +325,14 @@ async function toggleRow($: EngineInterface, cardId: string, rowId: string): Pro
   })
 }
 
+async function decideRow($: EngineInterface, cardId: string, rowId: string, isOn: boolean): Promise<void> {
+  await flushTyping($)
+  await changeDraft($, d => {
+    const r = d.responses[cardId] ?? {}
+    return { ...d, responses: { ...d.responses, [cardId]: { ...r, rows: { ...r.rows, [rowId]: isOn } } } }
+  })
+}
+
 async function commitField($: EngineInterface, key: string, text: string): Promise<void> {
   await update($, typing, t => Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)))
   if (key.startsWith('ask:')) await ask($, text)
@@ -376,6 +384,8 @@ function actionsFor($: EngineInterface): Actions {
     goPart: (cardId, n) => run(() => moveTo($, x => ({ ...x, part: { ...x.part, [cardId]: Math.max(0, n) } }))),
     respond: (key, patch) => run(() => respond($, key, patch)),
     toggleRow: (cardId, rowId) => run(() => toggleRow($, cardId, rowId)),
+    decideRow: (cardId, rowId, isOn) => run(() => decideRow($, cardId, rowId, isOn)),
+    setPlanView: (cardId, mode) => run(() => moveTo($, x => ({ ...x, planView: { ...(x.planView ?? {}), [cardId]: mode } }))),
     type: (key, text) => run(() => update($, typing, t => ({ ...t, [fieldKey(key)]: text }))),
     commit: (key, text) => run(() => commitField($, fieldKey(key), text)),
     toggleSummary: () => run(() => update($, view, x => ({ ...x, isSummaryOpen: !x.isSummaryOpen }))),

@@ -379,7 +379,12 @@ export function cardOutcome(card: Card, draft: Draft): string[] {
       const on = rows.filter(x => x.isOn)
       const verdict = r?.choice === 'cancel' ? 'Cancelled: write nothing' : !r?.choice ? '_undecided_' : on.length === rows.length ? 'Go ahead with every row' : `Go ahead with ${on.length} of ${rows.length} rows`
       lines.push(`- **Plan:** ${verdict}`)
-      if (r?.choice && r.choice !== 'cancel') for (const { row, isOn } of rows) lines.push(`  - [${isOn ? 'x' : ' '}] ${row.action} \`${row.target}\`${row.summary ? ` — ${row.summary}` : ''}`)
+      if (r?.choice && r.choice !== 'cancel')
+        for (const { row, isOn } of rows) {
+          lines.push(`  - [${isOn ? 'x' : ' '}] ${row.action} \`${row.target}\`${row.summary ? ` — ${row.summary}` : ''}`)
+          const note = draft.responses[partKey(card.id, row.id)]?.text?.trim()
+          if (note) lines.push(`    - Comment: ${note.replace(/\n+/g, ' ')}`)
+        }
       note('Comment', r?.text)
       break
     }
@@ -416,7 +421,15 @@ export function cardText(pack: Pack, card: Card, draft: Draft): string {
       add(card.quote && quoteBlock(card.quote), card.body, card.suggestion && `**Suggested change:** ${card.suggestion}`, card.evidence && `**The record says**${card.evidence.ref ? ` (${card.evidence.ref})` : ''}: ${card.evidence.quote}`)
       break
     case 'plan':
-      add(card.intro, card.rows.map(r => `- ${r.action} \`${r.target}\`${r.summary ? `: ${r.summary}` : ''}`).join('\n'))
+      add(
+        card.intro,
+        card.rows
+          .map(r => {
+            const note = draft.responses[partKey(card.id, r.id)]?.text?.trim()
+            return `- [${rowIsOn(draft.responses[card.id], r.id) ? 'x' : ' '}] ${r.action} \`${r.target}\`${r.summary ? `: ${r.summary}` : ''}${note ? `\n  - Comment: ${note}` : ''}`
+          })
+          .join('\n'),
+      )
       break
     case 'explainer':
       add(card.intro, ...card.steps.map((st, i) => `**${i + 1}. ${st.title}**\n\n${st.caption}`))

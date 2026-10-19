@@ -21,6 +21,9 @@ export type Actions = {
   goPart: (cardId: string, n: number) => void
   respond: (key: string, patch: Partial<Response>) => void
   toggleRow: (cardId: string, rowId: string) => void
+  /** Says yes or no to one plan row. */
+  decideRow: (cardId: string, rowId: string, isOn: boolean) => void
+  setPlanView: (cardId: string, mode: 'list' | 'one') => void
   type: (key: string, text: string) => void
   commit: (key: string, text: string) => void
   toggleSummary: () => void
@@ -55,6 +58,16 @@ const TYPE_COLOR: Record<CardType, string> = {
   explainer: '#26A69A',
   read: '#8D8B85',
 }
+/** A plan row's action, by its verb: create green, change blue, amend violet, remove red. */
+export function actionColor(action: string): string {
+  const v = action.trim().toLowerCase()
+  if (/^(create|add|new|write)/.test(v)) return '#66BB6A'
+  if (/^(amend|supersede)/.test(v)) return '#9575CD'
+  if (/^(delete|remove|drop|archive)/.test(v)) return '#EF5350'
+  if (/^(move|rename)/.test(v)) return '#FFA726'
+  return '#42A5F5'
+}
+
 const SEVERITY_COLOR: Record<string, string> = { high: '#EF5350', medium: '#FFA726', low: '#8D8B85' }
 const when = (iso?: string) => (iso ? iso.slice(0, 16).replace('T', ' ') : '')
 const bar = (done: number, total: number, width = 10) => {
@@ -84,11 +97,11 @@ export function isLinkHeavy(text: string): boolean {
  * A block of Markdown. On the desktop it is drawn as SVG text, which can be selected and copied,
  * unless its links must stay clickable (`links: 'open'`, or a block that is mostly links).
  */
-const md = (ui: UI, text: string | undefined, key?: string, dim?: boolean, links?: 'open'): RenderElement | null => {
+const md = (ui: UI, text: string | undefined, key?: string, dim?: boolean, links?: 'open', size?: number): RenderElement | null => {
   if (!text?.trim()) return null
   const how = drawing.get(ui)
   if (how?.isSvg && 'Svg' in ui && links !== 'open' && !isLinkHeavy(text)) {
-    const d = markdownSvg(text, how.width, !!dim)
+    const d = markdownSvg(text, how.width, !!dim, size)
     return <ui.Svg key={key} source={d.svg} alt={d.alt} width={how.width} height={d.height} isInteractive />
   }
   const { Markdown } = ui
@@ -369,7 +382,10 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
           : null,
       }
     case 'plan': {
+      const n = card.rows.length
       const on = card.rows.filter(row => rowIsOn(r, row.id)).length
+      const mode = view.planView?.[card.id] ?? (n > 5 ? 'one' : 'list')
+      const note = (rowId: string) => draft.responses[partKey(card.id, rowId)]?.text?.trim()
       const rows = (
         <Box key={`pr-${card.id}`} flexDirection="column">
           {card.rows.map(row => {
@@ -380,30 +396,89 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
               ` ${row.target}`,
               row.summary ? <Text dimColor> · {row.summary}</Text> : '',
             ]
-            return isPending ? (
-              <Button key={`row-${card.id}-${row.id}`} plain onPress={() => ctx.act.toggleRow(card.id, row.id)}>
-                {inner}
-              </Button>
-            ) : (
-              <Text key={`row-${card.id}-${row.id}`}>{inner}</Text>
+            const comment = note(row.id)
+            return (
+              <Box key={`row-${card.id}-${row.id}`} flexDirection="column">
+                {isPending ? (
+                  <Button key={`row-${card.id}-${row.id}`} plain onPress={() => ctx.act.toggleRow(card.id, row.id)}>
+                    {inner}
+                  </Button>
+                ) : (
+                  <Text>{inner}</Text>
+                )}
+                {comment && (
+                  <Text dimColor italic>
+                    {'     ↳ '}
+                    {comment}
+                  </Text>
+                )}
+              </Box>
             )
           })}
         </Box>
       )
+      const switcher = (
+        <Box key={`pv-${card.id}`} flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+          <Button key={`plan-list-${card.id}`} variant={mode === 'list' ? 'primary' : 'secondary'} label="☰ List" onPress={() => ctx.act.setPlanView(card.id, 'list')} />
+          <Button key={`plan-one-${card.id}`} variant={mode === 'one' ? 'primary' : 'secondary'} label="▣ One at a time" onPress={() => ctx.act.setPlanView(card.id, 'one')} />
+          <Text dimColor>
+            {on} yes · {n - on} no
+          </Text>
+        </Box>
+      )
+      let oneRow: RenderElement | null = null
+      if (isPending && mode === 'one') {
+        const at = Math.min(view.part[card.id] ?? 0, n - 1)
+        const row = card.rows[at]
+        if (row) {
+          const isOn = rowIsOn(r, row.id)
+          const isLast = at >= n - 1
+          const decide = (yes: boolean) => {
+            ctx.act.decideRow(card.id, row.id, yes)
+            if (!isLast) ctx.act.goPart(card.id, at + 1)
+          }
+          const color = actionColor(row.action)
+          oneRow = (
+            <Box key={`one-${card.id}`} flexDirection="column" gap={1}>
+              <Box flexDirection="column" gap={1} borderStyle="round" borderColor={color} paddingX={1}>
+                <Text>
+                  <Text backgroundColor={color} color="#000000" bold>
+                    {` ${row.action.toUpperCase()} `}
+                  </Text>
+                  <Text dimColor>
+                    {'  '}
+                    row {at + 1} of {n} · {isOn ? 'yes' : 'no'}
+                  </Text>
+                </Text>
+                {md(ui, `**${row.target}**`, `rt-${card.id}-${row.id}`, false, undefined, 17)}
+                {md(ui, row.summary, `rs-${card.id}-${row.id}`, false, undefined, 16)}
+                <Box flexDirection="row" gap={1}>
+                  <Button key={`row-yes-${card.id}-${row.id}`} variant={isOn ? 'primary' : 'secondary'} label={isOn ? '✓ Yes' : 'Yes'} onPress={() => decide(true)} />
+                  <Button key={`row-no-${card.id}-${row.id}`} variant={isOn ? 'secondary' : 'primary'} label={isOn ? 'No' : '✗ No'} onPress={() => decide(false)} />
+                </Box>
+                {field(ctx, `t:${partKey(card.id, row.id)}`, 'Comment', draft.responses[partKey(card.id, row.id)]?.text, 'on this row, optional')}
+              </Box>
+              <Box flexDirection="row" gap={1}>
+                <Button key={`row-prev-${card.id}`} plain dimColor={at === 0} label="‹ Previous row" onPress={() => ctx.act.goPart(card.id, Math.max(0, at - 1))} />
+                <Button key={`row-next-${card.id}`} plain dimColor={isLast} label="Next row ›" onPress={() => ctx.act.goPart(card.id, Math.min(n - 1, at + 1))} />
+              </Box>
+            </Box>
+          )
+        }
+      }
       return {
         content: col(`c-${card.id}`, md(ui, card.intro, `pi-${card.id}`), isPending ? null : rows),
         answer: isPending
           ? col(
               `a-${card.id}`,
-              <Text key={`ph-${card.id}`} dimColor>
-                Untick any row you do not want, then choose.
-              </Text>,
-              rows,
+              switcher,
+              mode === 'one' ? oneRow : <Text key={`ph-${card.id}`} dimColor>Untick any row you do not want, then choose.</Text>,
+              mode === 'one' ? null : rows,
               verbs(ctx, card.id, r?.choice, [
-                { id: 'go', label: on === card.rows.length ? 'Go ahead with all' : `Go ahead with ${on} of ${card.rows.length}` },
+                { id: 'go', label: on === n ? 'Go ahead with all' : `Go ahead with ${on} of ${n}` },
                 { id: 'cancel', label: 'Cancel: write nothing' },
               ]),
-              field(ctx, `t:${card.id}`, 'Comment', r?.text, 'edits to the plan, optional'),
+              field(ctx, `t:${card.id}`, 'Comment', r?.text, 'on the whole plan, optional'),
             )
           : null,
       }

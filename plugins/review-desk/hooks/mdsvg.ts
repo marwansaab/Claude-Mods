@@ -162,14 +162,14 @@ const tspans = (pieces: Piece[]) =>
 export type TextDrawn = { svg: string; height: number; alt: string }
 
 /** Markdown at a width, as an SVG of selectable text, its height, and the plain text for `alt`. */
-export function markdownSvg(md: string, width: number, isDim = false): TextDrawn {
+export function markdownSvg(md: string, width: number, isDim = false, base = FONT): TextDrawn {
   const blocks = blocksOf(md)
   let y = 0
   let body = ''
   const plain: string[] = []
   blocks.forEach((b, n) => {
     if (n > 0) y += GAP
-    const size = b.kind === 'h' ? (b.level === 1 ? FONT + 4 : b.level === 2 ? FONT + 2 : FONT + 1) : FONT
+    const size = b.kind === 'h' ? (b.level === 1 ? base + 4 : b.level === 2 ? base + 2 : base + 1) : base
     const lh = Math.round(size * 1.5)
     const indent = b.kind === 'li' ? 18 + (b.level ?? 0) * 16 : b.kind === 'quote' ? 14 : 0
     const lines = wrapRuns(b.runs, Math.max(60, width - indent - 4), size)
@@ -183,8 +183,9 @@ export function markdownSvg(md: string, width: number, isDim = false): TextDrawn
     if (b.kind === 'quote') body += `<rect x="0" y="${top + 3}" width="3" height="${Math.max(0, y - top - 4)}" rx="1.5" class="bar"/>`
     plain.push((b.kind === 'li' ? `${b.bullet} ` : '') + b.runs.map(r => r.text).join(''))
   })
-  const height = Math.max(LINE, Math.ceil(y + 4))
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${STYLE}<g${isDim ? ' class="d"' : ''}>${body}</g></svg>`
+  const height = Math.max(Math.round(base * 1.5), Math.ceil(y + 4))
+  const sized = base === FONT ? '' : `<style>svg{font-size:${base}px}</style>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${STYLE}${sized}<g${isDim ? ' class="d"' : ''}>${body}</g></svg>`
   return { svg, height, alt: plain.join('\n') }
 }
 

@@ -229,6 +229,8 @@ export type DeskView = {
   part: Record<string, number>
   isSummaryOpen: boolean
   isConfirming: boolean
+  /** How each plan card is shown: every row in a list, or one row at a time. */
+  planView?: Record<string, 'list' | 'one'>
   /** Cards whose "Ask about this card" section is open. */
   askOpen: Record<string, boolean>
   showAllAsks: boolean
