@@ -14,7 +14,7 @@ There are no HTML pages to build, no browser to open and no notes to export and 
   | **Question** | pick an option (Claude's recommended one is marked) or write an answer |
   | **Decision** | approve, approve with changes, or reject, with a comment |
   | **Finding** | accept, reject or discuss, with a reply; quotes, severity and "the record says" evidence are shown |
-  | **Plan** | untick rows you do not want, then go ahead or cancel |
+  | **Plan** | say yes or no to each row (all start as yes), with a comment on any row, then go ahead or cancel. Switch between **List** (every row at once) and **One at a time** (one row in larger type, with Yes and No); plans of more than five rows open one at a time |
   | **Explainer** | step through animated scenes with captions and graded claims, ticking *Got it* |
   | **Read-through** | read a long text section by section, with "Your call" flags, a note and a *Reviewed* tick each |
 

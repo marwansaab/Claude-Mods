@@ -408,6 +408,47 @@ describe('the desk', () => {
     await term.unmount()
   })
 
+  test('a long plan opens one row at a time: yes or no, a comment per row, and a switch to the list', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    const rows = ['A', 'B', 'C', 'D', 'E', 'F'].map((x, i) => ({ id: `r${i + 1}`, action: i === 0 ? 'Create' : 'Edit', target: `Notes/${x}.md`, summary: `change ${x}` }))
+    const plan = { id: 'long-plan', title: 'Long plan', cards: [{ type: 'plan', id: 'P', title: 'Write plan', rows }] }
+    await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_9', ...plan } as never)
+    const draftOf = () => JSON.parse(world.files.get('/proj/Reviews/pending/long-plan/draft.json')!)
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const pane = await $.ui.mount({ plugin: 'review-desk', surface, ...PANE })
+      if (surface === 'terminal') {
+        // More than five rows: one row at a time, the first row up, every row a yes until said otherwise.
+        expect(await shows(pane, /row 1 of 6 · yes/)).toBe(true)
+        expect(await shows(pane, /Notes\/A\.md/)).toBe(true)
+        await pane.input({ key: 't:P/r1', text: 'name it after the decision' })
+        await pane.press({ key: 'row-no-P-r1' })
+        expect(draftOf().responses.P.rows.r1).toBe(false)
+        expect(draftOf().responses['P/r1'].text).toBe('name it after the decision')
+        // Answering moves on to the next row.
+        expect(await shows(pane, /row 2 of 6/)).toBe(true)
+        expect(await shows(pane, /Notes\/B\.md/)).toBe(true)
+        await pane.press({ key: 'plan-list-P' })
+      }
+      // The list shows every row, the refused one unticked, with its comment under it.
+      expect(await pane.find({ key: 'row-P-r6' })).toBeDefined()
+      expect(await shows(pane, /☐/)).toBe(true)
+      expect(await shows(pane, /name it after the decision/)).toBe(true)
+      expect(await shows(pane, /5 yes · 1 no/)).toBe(true)
+      await pane.unmount()
+    }
+
+    const pane = await $.ui.mount({ plugin: 'review-desk', surface: 'desktop', ...PANE })
+    await pane.press({ key: 'verb-P-go' })
+    await pane.press({ key: 'submit' })
+    await pane.unmount()
+    const outcome = world.files.get('/proj/Reviews/reviewed/long-plan/outcome.md') ?? ''
+    expect(outcome).toMatch(/Go ahead with 5 of 6 rows/)
+    expect(outcome).toMatch(/\[ \] Create `Notes\/A\.md`/)
+    expect(outcome).toMatch(/Comment: name it after the decision/)
+  })
+
   test('a view saved by an older version still draws', async ($, on) => {
     mock.clock(on, { now: Date.parse(AT) })
     memoryWorld(on)
