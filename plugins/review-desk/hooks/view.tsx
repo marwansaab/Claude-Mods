@@ -458,9 +458,10 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
                 </Box>
                 {field(ctx, `t:${partKey(card.id, row.id)}`, 'Comment', draft.responses[partKey(card.id, row.id)]?.text, 'on this row, optional')}
               </Box>
-              <Box flexDirection="row" gap={1}>
-                <Button key={`row-prev-${card.id}`} plain dimColor={at === 0} label="‹ Previous row" onPress={() => ctx.act.goPart(card.id, Math.max(0, at - 1))} />
-                <Button key={`row-next-${card.id}`} plain dimColor={isLast} label="Next row ›" onPress={() => ctx.act.goPart(card.id, Math.min(n - 1, at + 1))} />
+              {/* Previous at the left edge, Next at the right, as real buttons. */}
+              <Box flexDirection="row" justifyContent="space-between" width="100%">
+                <Button key={`row-prev-${card.id}`} variant="secondary" dimColor={at === 0} label="‹ Previous row" onPress={() => ctx.act.goPart(card.id, Math.max(0, at - 1))} />
+                <Button key={`row-next-${card.id}`} variant={isLast ? 'secondary' : 'primary'} dimColor={isLast} label="Next row ›" onPress={() => ctx.act.goPart(card.id, Math.min(n - 1, at + 1))} />
               </Box>
             </Box>
           )
