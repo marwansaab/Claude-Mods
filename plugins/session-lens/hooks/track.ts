@@ -6,10 +6,10 @@ import { crewOrder } from './crew'
 // ---------- layout ----------
 
 /** The layout the first session starts with: To-do and Skills open, Tools closed, its groups collapsed. */
-export const DEFAULT_LAYOUT: LensLayout = { folded: ['tools'], groupsOpen: false, groupExceptions: [], isGrouped: true, sort: 'count' }
+export const DEFAULT_LAYOUT: LensLayout = { folded: ['tools'], groupsOpen: false, groupExceptions: [], isGrouped: true, sort: 'count', isLegendOpen: false }
 export const DEFAULT_VIEW: LensView = { ...DEFAULT_LAYOUT, filter: '', toggledAt: {}, layoutAt: 0 }
 
-const SECTIONS: LensSection[] = ['todo', 'crew', 'skills', 'tools']
+const SECTIONS: LensSection[] = ['todo', 'crew', 'crewWork', 'crewBase', 'skills', 'tools']
 const SORTS: LensSort[] = ['count', 'recent', 'name']
 
 /** What of a view is kept across sessions. */
@@ -19,6 +19,7 @@ export const layoutOf = (v: LensView): LensLayout => ({
   groupExceptions: v.groupExceptions,
   isGrouped: v.isGrouped,
   sort: v.sort,
+  isLegendOpen: v.isLegendOpen,
 })
 
 /** A kept layout as the store hands it back, each field checked; the default where one is missing or wrong. */
@@ -31,6 +32,7 @@ export function parseLayout(raw: unknown): LensLayout {
     groupExceptions: strings(o.groupExceptions) ?? [],
     isGrouped: typeof o.isGrouped === 'boolean' ? o.isGrouped : DEFAULT_LAYOUT.isGrouped,
     sort: SORTS.includes(o.sort as LensSort) ? (o.sort as LensSort) : DEFAULT_LAYOUT.sort,
+    isLegendOpen: typeof o.isLegendOpen === 'boolean' ? o.isLegendOpen : DEFAULT_LAYOUT.isLegendOpen,
   }
 }
 
@@ -268,9 +270,10 @@ export function listOrders(
   sort: LensSort,
   crew: Record<string, LensCrab> = {},
   now = 0,
+  raceSince = 0,
 ): Record<string, string[]> {
   const rows = toolRows(tools, servers, sort, '')
-  const out: Record<string, string[]> = { crew: crewOrder(crew, now), skills: skillList(skills).map(s => s.name), flat: rows.map(r => r.name) }
+  const out: Record<string, string[]> = { crew: crewOrder(crew, now, raceSince), skills: skillList(skills).map(s => s.name), flat: rows.map(r => r.name) }
   for (const g of toolGroups(rows, sort)) out[`g:${g.key}`] = g.rows.map(r => r.name)
   return out
 }

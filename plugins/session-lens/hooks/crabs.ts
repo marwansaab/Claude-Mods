@@ -6,7 +6,7 @@ import type { LensCaptain, LensCrab, LensMove } from '../types'
 import { ACCENT, STILL, attrs, bar, doc, esc, f1, fit, gradient, lighter, loopOf, once, onceOf, stagger, textWidth } from './art'
 import type { Anim, Drawn } from './art'
 import { BASE_MARK, CAPTAIN_NAME, actionOf, captainPose, captainQuip, characterOf, duration, poseOf, progressLabel, progressOf, quipOf } from './crew'
-import type { Accessory, Character, Pose } from './crew'
+import type { Accessory, Character, LegendEntry, Pose } from './crew'
 
 const INK = '#1f1e1c'
 
@@ -60,6 +60,9 @@ function darker(hex: string, by = 0.3): string {
   return `#${((mix((n >> 16) & 255) << 16) | (mix((n >> 8) & 255) << 8) | mix(n & 255)).toString(16).padStart(6, '0')}`
 }
 
+/** A loop run at another pace than its class sets: its period, so its phase still holds across drawings. */
+const faster = (a: Anim, period: number): Anim => ({ cls: a.cls, style: `${a.style}animation-duration:${period}s;` })
+
 const star = (x: number, y: number, r: number, fill: string, a: Anim = STILL) =>
   `<g transform="translate(${f1(x)} ${f1(y)})"><path${attrs('', a)} d="M0,${-r} L${f1(r * 0.27)},${f1(-r * 0.27)} L${r},0 L${f1(r * 0.27)},${f1(r * 0.27)} L0,${r} L${f1(-r * 0.27)},${f1(r * 0.27)} L${-r},0 L${f1(-r * 0.27)},${f1(-r * 0.27)} Z" fill="${fill}"/></g>`
 
@@ -69,15 +72,17 @@ const star = (x: number, y: number, r: number, fill: string, a: Anim = STILL) =>
 function half(c: Character, pose: Pose, now: number, endedAt: number, gid: string): string {
   const shell = c.color
   const line = darker(shell)
-  const working = pose === 'work'
-  const legA = working ? loopOf('c-legA', P.leg, now) : STILL
-  const legB = working ? loopOf('c-legB', P.leg, now) : STILL
+  const working = pose === 'work' || pose === 'scurry'
+  // A scurrying crab steps and snips at about twice its pace.
+  const pace = (cls: string, period: number) => (pose === 'scurry' ? faster(loopOf(cls, period / 2, now), period / 2) : loopOf(cls, period, now))
+  const legA = working ? pace('c-legA', P.leg) : STILL
+  const legB = working ? pace('c-legB', P.leg) : STILL
   const tap = pose === 'wait' ? loopOf('c-tap', P.tap, now) : STILL
   const legs =
     `<path${attrs('', legA)} d="M13,29 q-5,1 -8,5" stroke="${line}" stroke-width="2.2" fill="none" stroke-linecap="round"/>` +
     `<path${attrs('', legB)} d="M14,32 q-5,2 -7,7" stroke="${line}" stroke-width="2.2" fill="none" stroke-linecap="round"/>` +
     `<path${attrs('', pose === 'wait' ? tap : legA)} d="M16,34 q-3,3 -4,7" stroke="${line}" stroke-width="2.2" fill="none" stroke-linecap="round"/>`
-  const snip = working ? loopOf('c-snip', P.snip, now) : STILL
+  const snip = working ? pace('c-snip', P.snip) : STILL
   const raise = pose === 'done' ? onceOf('c-raise', CHEER, endedAt, now) : STILL
   const claw =
     `<g${attrs('', raise)}>` +
@@ -167,10 +172,20 @@ export function crabMarkup(m: Pick<LensCrab, 'character' | 'endedAt'>, pose: Pos
       [3, 29],
       [45, 28],
     ]
-      .map(([x, y], i) => star(x!, y!, 2.6, i % 2 ? '#ffd54a' : c.color, onceOf('c-spark', SPARK, endedAt, now, 0.15 + i * 0.07)))
+      // Sparkles burst once, while the crab cheers; once they are over they are not drawn at all.
+      .map(([x, y], i) => ({ x: x!, y: y!, i, burst: onceOf('c-spark', SPARK, endedAt, now, 0.15 + i * 0.07) }))
+      .filter(s => s.burst.cls)
+      .map(s => star(s.x, s.y, 2.6, s.i % 2 ? '#ffd54a' : c.color, s.burst))
       .join('')
-  const working = pose === 'work'
-  const hop = pose === 'done' ? onceOf('c-hop', CHEER, endedAt, now) : working ? loopOf('c-bob', P.bob, now) : STILL
+  const working = pose === 'work' || pose === 'scurry'
+  const hop =
+    pose === 'done'
+      ? onceOf('c-hop', CHEER, endedAt, now)
+      : pose === 'scurry'
+        ? faster(loopOf('c-bob', P.bob / 2, now), P.bob / 2)
+        : working
+          ? loopOf('c-bob', P.bob, now)
+          : STILL
   return (
     gradient(gid, lighter(c.color, 0.3), c.color) +
     `<ellipse cx="24" cy="41" rx="13" ry="2.2" fill="#000" fill-opacity=".14"/>` +
@@ -189,13 +204,13 @@ export function crabSvg(m: Pick<LensCrab, 'character' | 'endedAt'>, pose: Pose, 
   return { svg: doc(48, 44, crabMarkup(m, pose, now, 'cg'), CRAB_STYLE), height: 44, alt }
 }
 
-// ---------- the crew as one picture ----------
+// ---------- the crew: the beach, and a picture per list ----------
 
 /**
- * Heights: a list header; a lane of the beach; the beach's sky and waves above its lanes, and the sand
- * below them; a working crab's text row under the beach; a crab's row back at base.
+ * Heights: a lane of the beach; the beach's sky and waves above its lanes, and the sand below them;
+ * a working crab's row; a crab's row among those reported back.
  */
-const ROW = { head: 26, lane: 38, sky: 24, shore: 10, work: 42, base: 50, gap: 8 } as const
+const ROW = { lane: 38, sky: 24, shore: 10, work: 42, base: 50 } as const
 
 /** How tall the beach is for this many lanes: the captain's, and one per crab on it. */
 const beachH = (lanes: number) => ROW.sky + lanes * ROW.lane + ROW.shore
@@ -204,46 +219,6 @@ const beachH = (lanes: number) => ROW.sky + lanes * ROW.lane + ROW.shore
 function splitOrder(order: readonly string[]): { work: string[]; base: string[] } {
   const cut = order.indexOf(BASE_MARK)
   return cut < 0 ? { work: [...order], base: [] } : { work: order.slice(0, cut), base: order.slice(cut + 1) }
-}
-
-type Layout = {
-  /** Each crab's row: under the beach for one on it, in the list of those back for one back. */
-  y: Map<string, number>
-  /** Each crab's lane on the beach, under the captain's (lane 0). */
-  lane: Map<string, number>
-  working: Set<string>
-  heads: { label: string; count: number; y: number }[]
-  workEnd: number
-  height: number
-}
-
-/** Where everything sits for a crew order: the beach, its crabs' rows, then the crabs that reported back. */
-function layoutOf(order: readonly string[]): Layout {
-  const { work, base } = splitOrder(order)
-  const y = new Map<string, number>()
-  const lane = new Map<string, number>()
-  const heads: Layout['heads'] = []
-  work.forEach((id, i) => lane.set(id, i + 1))
-  let at = beachH(1 + work.length) + 6
-  if (work.length) {
-    heads.push({ label: 'AT WORK', count: work.length, y: at })
-    at += ROW.head
-    for (const id of work) {
-      y.set(id, at)
-      at += ROW.work
-    }
-  }
-  const workEnd = at
-  if (base.length) {
-    if (work.length) at += ROW.gap
-    heads.push({ label: 'REPORTED BACK', count: base.length, y: at })
-    at += ROW.head
-    for (const id of base) {
-      y.set(id, at)
-      at += ROW.base
-    }
-  }
-  return { y, lane, working: new Set(work), heads, workEnd, height: at }
 }
 
 /** Seconds a crab takes to walk to where its progress has got to. */
@@ -321,7 +296,7 @@ const captainWalker = (s: Skipper): Walker => ({
  * back. A step is pinned to when the progress moved; a lane that changes place glides there, and a new
  * one fades in.
  */
-function beachMarkup(w: number, walkers: Walker[], old: Layout | null, since: number, now: number): string {
+function beachMarkup(w: number, walkers: Walker[], oldLanes: Map<string, number> | null, since: number, now: number): string {
   const h = beachH(walkers.length)
   const flagX = w - 50
   const laneW = flagX - 40
@@ -355,8 +330,8 @@ function beachMarkup(w: number, walkers: Walker[], old: Layout | null, since: nu
       const isLeft = m.isPast || (need > roomRight && x - 6 > roomRight)
       const bubble = bubbleAt(isLeft ? x - 2 : x + 38, top + 6, m.line, isLeft, m.pose === 'think', isLeft ? x - 6 : roomRight, once('pop', m.saidAt, now), now)
       // A lane that changed place glides there with its crab; a new lane fades in. The captain's stays first.
-      const was = i === 0 ? 0 : old?.lane.get(m.key)
-      const glide = old && since < FLY ? (was === undefined ? 'new' : was !== i ? (was - i) * ROW.lane : 0) : 0
+      const was = i === 0 ? 0 : oldLanes?.get(m.key)
+      const glide = oldLanes && since < FLY ? (was === undefined ? 'new' : was !== i ? (was - i) * ROW.lane : 0) : 0
       const lid = `cl${i}`
       const laneStyle =
         glide === 'new'
@@ -420,97 +395,73 @@ const IDLE_SKIPPER: Skipper = { captain: { isBusy: false, activity: 'other', det
 
 const crabAlt = (m: LensCrab, now: number) => `${m.name} the ${characterOf(m.character).role}, ${m.status === 'running' ? `${progressLabel(m)}, ${actionOf(m, now)}` : m.status}`
 
+/** For a moment after the crew's order last changed: how long ago that was, and the order before it. */
+function lastMove(move: LensMove | undefined, now: number): { since: number; before: { work: string[]; base: string[] } } | null {
+  if (!move?.from.length) return null
+  const since = (now - move.at) / 1000
+  return since < FLY + GLOW ? { since, before: splitOrder(move.from) } : null
+}
+
 /**
- * The crew as one picture: the crabs at work on their beach, a text row each under it, then the ones
- * back at base. For a moment after the crew's order last changed (`move`), each row that moved flies
- * from its old place to its new one: a crab that just finished flies down into the base list, a new one
- * flies in at the foot of the working list, and the lanes on the beach glide to their new order. The
- * crab with the news is lit as it lands and painted above the rest. Rows not in flight come in after
- * `enterAt` (the section opened).
+ * The beach as a picture: the captain's lane, then one per crab on it. For a moment after the crew's
+ * order changed, a lane that moved glides to its new place and a new one fades in. It comes in after
+ * `enterAt` (its section opened).
  */
-export function crewSvg(w: number, working: LensCrab[], base: LensCrab[], move: LensMove | undefined, enterAt: number, now: number, skipper: Skipper = IDLE_SKIPPER): Drawn {
-  const order = [...working.map(m => m.id), BASE_MARK, ...base.map(m => m.id)]
-  const lay = layoutOf(order)
-  const since = move ? (now - move.at) / 1000 : Infinity
-  const old = move && move.from.length && since < FLY + GLOW ? layoutOf(move.from) : null
-  // A list's header glides with its crabs: one jumping ahead would sit on top of the crabs still in flight.
-  const heads = lay.heads
-    .map((h, i) => {
-      const was = old?.heads.find(o => o.label === h.label)
-      const dy = was && since < FLY ? was.y - h.y : 0
-      const id = `ch${i}`
-      const glide = dy
-        ? `<defs><style>@keyframes ${id}{from{transform:translateY(${dy}px)}to{transform:none}}.${id}{animation:${id} ${FLY}s cubic-bezier(.25,.8,.25,1) ${(-since).toFixed(3)}s both}</style></defs>`
-        : ''
-      const enter = old && !was ? onceOf('fade', 0.45, move?.at ?? 0, now) : once('fade', enterAt, now)
-      // Capitals with letter-spacing run wider than textWidth's guess for mixed case.
-      const countX = 2 + h.label.length * (10.5 * 0.68 + 0.7) + 5
-      return (
-        `${glide}<g transform="translate(0 ${h.y})"><g${attrs(dy ? id : '', enter)}>` +
-        `<text class="dim" x="2" y="16" font-size="10.5" font-weight="700" letter-spacing=".7">${h.label}</text>` +
-        `<text class="faint" x="${f1(countX)}" y="16" font-size="10.5" font-weight="700">${h.count}</text></g></g>`
-      )
-    })
-    .join('')
-  // The beach, always there: the captain's lane, and one per crab on it.
-  const beach = `<g${attrs('', once('fade', enterAt, now))}>${beachMarkup(w, [captainWalker(skipper), ...working.map(m => crabWalker(m, now))], old, since, now)}</g>`
-  // Which crabs overtook another in their own list: compared among the crabs in that list both before
-  // and after, so a crab that only closes a gap left by one that went is not lit as news.
-  const oldParts = move ? splitOrder(move.from) : { work: [], base: [] }
-  const newParts = splitOrder(order)
-  const overtook = new Set<string>()
-  for (const part of ['work', 'base'] as const) {
-    const before = oldParts[part]
-    const after = newParts[part]
-    const common = after.filter(id => before.includes(id))
-    const was = before.filter(id => common.includes(id))
-    common.forEach((id, k) => {
-      if (k < was.indexOf(id)) overtook.add(id)
-    })
-  }
+export function beachSvg(w: number, working: LensCrab[], move: LensMove | undefined, enterAt: number, now: number, skipper: Skipper = IDLE_SKIPPER): Drawn {
+  const last = lastMove(move, now)
+  const oldLanes = last ? new Map(last.before.work.map((id, i) => [id, i + 1])) : null
+  const walkers = [captainWalker(skipper), ...working.map(m => crabWalker(m, now))]
+  const h = beachH(walkers.length)
+  const body = `<g${attrs('', once('fade', enterAt, now))}>${beachMarkup(w, walkers, oldLanes, last?.since ?? Infinity, now)}</g>`
+  const alt = [`${CAPTAIN_NAME}: ${captainQuip(skipper.captain)}`, ...working.map(m => `${m.name}: ${quipOf(m, now)}`)].join('. ')
+  return { svg: doc(w, h, body, CRAB_STYLE), height: h, alt }
+}
+
+/**
+ * One list of the crew as a picture: the crabs at work (a row each under the beach), or those that
+ * reported back. For a moment after the crew's order changed, a row that moved within the list flies to
+ * its new place; a crab new to the list flies in, lit (at the foot of those at work, or from just under
+ * its title into the top of those back) and is painted above the rest. Rows not in flight come in after
+ * `enterAt` (the list or its section opened).
+ */
+export function crewListSvg(w: number, kind: 'work' | 'base', list: LensCrab[], move: LensMove | undefined, enterAt: number, now: number): Drawn {
+  const last = lastMove(move, now)
+  const before = last ? last.before[kind] : null
+  const h = kind === 'work' ? ROW.work : ROW.base
   const still: string[] = []
   const pushed: string[] = []
   const flying: string[] = []
-  const all = [...working, ...base]
-  all.forEach((m, i) => {
-    const isWorking = lay.working.has(m.id)
-    const y = lay.y.get(m.id) ?? 0
-    const h = isWorking ? ROW.work : ROW.base
-    const row = isWorking ? workRow(w, m, now) : baseRow(w, m, i, now)
-    const oldY = old ? (old.y.get(m.id) ?? lay.workEnd) : y
+  list.forEach((m, i) => {
+    const y = i * h
+    const row = kind === 'work' ? workRow(w, m, now) : baseRow(w, m, i, now)
+    const was = before ? before.indexOf(m.id) : i
+    const isNew = before !== null && was < 0
+    // A crab new to the list comes from below its last row (at work), or from just above its first (back).
+    const oldY = !before ? y : isNew ? (kind === 'work' ? list.length * h : -h) : was * h
     const dy = oldY - y
-    if (!old || dy === 0) {
-      const enter = once('in', enterAt, now, stagger(i))
-      still.push(`<g transform="translate(0 ${y})"><g${attrs('', enter)}>${row}</g></g>`)
+    if (!last || dy === 0) {
+      still.push(`<g transform="translate(0 ${y})"><g${attrs('', once('in', enterAt, now, stagger(i)))}>${row}</g></g>`)
       return
     }
-    const isNew = !old.y.has(m.id)
-    const crossed = !isNew && old.working.has(m.id) !== isWorking
-    const isNews = isNew || crossed || overtook.has(m.id)
+    const since = last.since
     const id = `cf${i}`
     // A slight lift at mid-flight, so a crab reads as flying rather than sliding.
     const fly =
       since < FLY
-        ? `@keyframes ${id}{0%{transform:translateY(${dy}px)${isNew ? ';opacity:0' : ''}}55%{transform:translateY(${f1(dy * 0.3 - (isNews ? 5 : 0))}px);opacity:1}100%{transform:none;opacity:1}}` +
+        ? `@keyframes ${id}{0%{transform:translateY(${dy}px)${isNew ? ';opacity:0' : ''}}55%{transform:translateY(${f1(dy * 0.3 - (isNew ? 5 : 0))}px);opacity:1}100%{transform:none;opacity:1}}` +
           `.${id}{animation:${id} ${FLY}s cubic-bezier(.25,.8,.25,1) ${(-since).toFixed(3)}s both}`
         : ''
-    const glow = isNews ? `.${id}h{animation:sl-fade ${(FLY + GLOW).toFixed(2)}s ease-in reverse ${(-since).toFixed(3)}s both}` : ''
-    ;(isNews ? flying : pushed).push(
+    const glow = isNew ? `.${id}h{animation:sl-fade ${(FLY + GLOW).toFixed(2)}s ease-in reverse ${(-since).toFixed(3)}s both}` : ''
+    ;(isNew ? flying : pushed).push(
       `<defs><style>${fly}${glow}</style></defs>` +
         `<g transform="translate(0 ${y})"><g${fly ? ` class="${id}"` : ''}>` +
-        (isNews ? `<rect class="${id}h" x="-2" y="1" width="${w + 4}" height="${h - 2}" rx="10" fill="${characterOf(m.character).color}" fill-opacity=".14"/>` : '') +
+        (isNew ? `<rect class="${id}h" x="-2" y="1" width="${w + 4}" height="${h - 2}" rx="10" fill="${characterOf(m.character).color}" fill-opacity=".14"/>` : '') +
         `${row}</g></g>`,
     )
   })
-  const height = Math.max(1, lay.height)
-  const alt = [
-    `${CAPTAIN_NAME}: ${captainQuip(skipper.captain)}`,
-    working.length ? `At work: ${working.map(m => crabAlt(m, now)).join('; ')}` : '',
-    base.length ? `Reported back: ${base.map(m => crabAlt(m, now)).join('; ')}` : '',
-  ]
-    .filter(Boolean)
-    .join('. ')
-  return { svg: doc(w, height, heads + beach + still.join('') + pushed.join('') + flying.join(''), CRAB_STYLE), height, alt }
+  const height = Math.max(1, list.length * h)
+  const alt = `${kind === 'work' ? 'At work' : 'Reported back'}: ${list.map(m => crabAlt(m, now)).join('; ')}`
+  return { svg: doc(w, height, still.join('') + pushed.join('') + flying.join(''), CRAB_STYLE), height, alt }
 }
 
 // ---------- the band above the prompt ----------
@@ -555,4 +506,37 @@ export function bandSvg(w: number, shown: readonly LensCrab[], now: number): Dra
     height: BAND_H,
     alt: `Crew: ${who}, ${label} along`,
   }
+}
+
+// ---------- who's who ----------
+
+/**
+ * The characters on duty as a strip of small cards: each one's crab, its role, and the agent types it
+ * stands for. The cards wrap to as many rows as the width needs, and pop in when the legend opens (`openedAt`).
+ */
+export function legendSvg(w: number, entries: readonly LegendEntry[], openedAt: number, now: number): Drawn {
+  const cellW = 150
+  const cellH = 34
+  const perRow = Math.max(1, Math.floor(w / cellW))
+  const cells = entries
+    .map((e, i) => {
+      const x = (i % perRow) * cellW
+      const y = Math.floor(i / perRow) * cellH
+      // Agent types are names, shown as code and spelled as they are; the captain's note is plain words.
+      const under = e.note
+        ? `<text class="dim" x="34" y="28" font-size="10.5">${esc(e.note)}</text>`
+        : `<text class="dim" x="34" y="28" font-size="10" font-family="ui-monospace,SFMono-Regular,Consolas,monospace">${esc(fit(e.types.join(', '), cellW - 40, 10.5))}</text>`
+      return (
+        `<g transform="translate(${x} ${y})"><g${attrs('', once('pop', openedAt, now, stagger(i)))}>` +
+        `<g transform="translate(0 2) scale(.62)">${crabMarkup({ character: e.character }, 'work', 0, `lg${i}`)}</g>` +
+        `<text x="34" y="14" font-size="12" font-weight="650" fill="${e.color}">${esc(e.role)}</text>` +
+        under +
+        `</g></g>`
+      )
+    })
+    .join('')
+  const height = Math.max(1, Math.ceil(entries.length / perRow) * cellH)
+  // A still crab here: the legend says who is who, the beach does the walking.
+  const still = cells.replace(/ class="c-(legA|legB|snip|bob|blink)" style="[^"]*"/g, '')
+  return { svg: doc(w, height, still, CRAB_STYLE), height, alt: `Who's who: ${entries.map(e => `${e.role} = ${e.note ?? e.types.join(', ')}`).join('; ')}` }
 }

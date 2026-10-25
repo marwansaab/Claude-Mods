@@ -50,7 +50,8 @@ export type LensSkill = {
  */
 export type LensMove = { from: string[]; to: string[]; at: number }
 
-export type LensSection = 'todo' | 'crew' | 'skills' | 'tools'
+/** The pane's sections, and the two lists inside the crew (`crewWork`, `crewBase`), each folding on its own. */
+export type LensSection = 'todo' | 'crew' | 'crewWork' | 'crewBase' | 'skills' | 'tools'
 export type LensSort = 'count' | 'name' | 'recent'
 
 /** What a crab was last seen doing, from its last call or model request. */
@@ -106,6 +107,8 @@ export type LensLayout = {
   /** Tools grouped by their MCP server or connector, or one flat list. */
   isGrouped: boolean
   sort: LensSort
+  /** The crew's who's-who legend is open. */
+  isLegendOpen: boolean
 }
 
 /** How the person has the pane laid out: the kept layout, and what lasts only for the session. */
@@ -136,6 +139,11 @@ declare module 'claude-code' {
       crew: Record<string, LensCrab>
       /** The main thread, always on the beach. */
       captain: LensCaptain
+      /**
+       * When the current race began: a crab set out with no one at work. The crew lists show the crabs of
+       * this race alone, so the list of those back starts empty with each race.
+       */
+      raceSince: number
       /** Moved on a timer while a crab works, so a crab left waiting is drawn waiting. */
       crewTick: number
       /** The band above the prompt shows crabs that set out or came back after this moment. */

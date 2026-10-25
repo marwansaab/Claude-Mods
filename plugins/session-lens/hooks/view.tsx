@@ -4,8 +4,8 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import type { LensCaptain, LensCrab, LensMove, LensPlan, LensSection, LensSkill, LensSort, LensTool, LensView } from '../types'
 import { ACCENT, barShare, groupTileSvg, groupTotalSvg, hueOf, skillListSvg, stepSvg, todoProgressSvg, toolListSvg } from './art'
-import { bandSvg, crewSvg } from './crabs'
-import { CAPTAIN_NAME, captainQuip, characterOf, crewLists, crewSummary, duration, isOnBeach, progressLabel, progressOf, quipOf } from './crew'
+import { bandSvg, beachSvg, crewListSvg, legendSvg } from './crabs'
+import { CAPTAIN_NAME, captainQuip, characterOf, crewLists, crewSummary, duration, isOnBeach, legendOf, progressLabel, progressOf, quipOf } from './crew'
 import { doneOf, isGroupOpen, plural, skillList, toolGroups, toolRows } from './track'
 import type { ToolGroup, ToolRow } from './track'
 
@@ -19,6 +19,8 @@ export type Actions = {
   setGrouped: (isGrouped: boolean) => void
   setSort: (sort: LensSort) => void
   setFilter: (text: string) => void
+  /** Opens or closes the crew's who's-who legend. */
+  toggleLegend: () => void
 }
 
 export type Ctx = {
@@ -38,6 +40,8 @@ export type Ctx = {
   crew: Record<string, LensCrab>
   /** The main thread, played by the captain. */
   captain: LensCaptain
+  /** When the current race began: the lists show its crabs alone. */
+  raceSince: number
   /** When this drawing is made: each animation is drawn as it stands at this moment. */
   now: number
   act: Actions
@@ -198,17 +202,45 @@ function crabLine(ctx: Ctx, m: LensCrab): RenderElement {
   )
 }
 
+/** A list inside the crew: a title that folds it, like a section's, and its count. */
+function crewListHead(ctx: Ctx, id: 'crewWork' | 'crewBase', label: string, count: number): RenderElement {
+  const { Text, Button } = ctx.ui
+  const isOpen = !ctx.view.folded.includes(id)
+  return (
+    <Button key={`sec-${id}`} plain onPress={() => ctx.act.toggleSection(id)}>
+      <Text color={ACCENT}>{isOpen ? '▾ ' : '▸ '}</Text>
+      <Text bold dimColor>
+        {label}
+      </Text>
+      <Text dimColor>{`  ${count}`}</Text>
+    </Button>
+  )
+}
+
 /**
- * The crew: the beach, where the captain always is, with the crabs at work; their rows; then the crabs
- * that reported back, the latest first.
+ * The crew: the beach, where the captain always is, with the race's crabs at work; then the crabs at work,
+ * a row each; then the crabs that reported back, the latest first. The two lists fold on their own.
  */
 function crewSection(ctx: Ctx): RenderElement {
-  const { Box, Text } = ctx.ui
-  const { working, base } = crewLists(ctx.crew, ctx.now)
-  const right = working.length + base.length ? crewSummary(ctx.crew) : ctx.captain.isBusy ? 'Captain at the helm' : 'Captain off watch'
+  const { Box, Text, Button } = ctx.ui
+  const { working, base } = crewLists(ctx.crew, ctx.now, ctx.raceSince)
+  const summary = working.length + base.length ? crewSummary(ctx.crew, ctx.raceSince) : ctx.captain.isBusy ? 'Captain at the helm' : 'Captain off watch'
+  const isLegendOpen = ctx.view.isLegendOpen
+  // The summary, and a ? that opens who's who: which character stands for which agent type.
+  const right = (
+    <Box flexDirection="row" gap={1} alignItems="center">
+      <Text dimColor>{summary}</Text>
+      <Button key="crew-legend" plain dimColor={!isLegendOpen} label={isLegendOpen ? '✕ who' : '? who'} onPress={() => ctx.act.toggleLegend()} />
+    </Box>
+  )
+  const legend = legendOf([...working, ...base])
+  const workOpen = !ctx.view.folded.includes('crewWork')
+  const baseOpen = !ctx.view.folded.includes('crewBase')
   return section(ctx, 'crew', 'Crew', right, () => {
+    const rows: RenderElement[] = []
     if (ctx.isPictured) {
       const w = rowPixels(ctx.columns)
+      if (isLegendOpen) rows.push(picture(ctx, 'crew-legend-strip', legendSvg(w, legend, ctx.view.toggledAt.legend ?? 0, ctx.now), w)!)
       const steps = ctx.plan.steps
       const skipper = {
         captain: ctx.captain,
@@ -217,25 +249,49 @@ function crewSection(ctx: Ctx): RenderElement {
         doneBefore: ctx.plan.doneBefore,
         changedAt: ctx.plan.updatedAt,
       }
-      return [picture(ctx, 'crew-list', crewSvg(w, working, base, ctx.moves.crew, sectionAt(ctx, 'crew'), ctx.now, skipper), w)!]
+      rows.push(picture(ctx, 'crew-beach', beachSvg(w, working, ctx.moves.crew, sectionAt(ctx, 'crew'), ctx.now, skipper), w)!)
+      if (working.length) {
+        rows.push(crewListHead(ctx, 'crewWork', 'At work', working.length))
+        if (workOpen) rows.push(picture(ctx, 'crew-work', crewListSvg(w, 'work', working, ctx.moves.crew, latest(sectionAt(ctx, 'crew'), ctx.view.toggledAt.crewWork), ctx.now), w)!)
+      }
+      if (base.length) {
+        rows.push(crewListHead(ctx, 'crewBase', 'Reported back', base.length))
+        if (baseOpen) rows.push(picture(ctx, 'crew-base', crewListSvg(w, 'base', base, ctx.moves.crew, latest(sectionAt(ctx, 'crew'), ctx.view.toggledAt.crewBase), ctx.now), w)!)
+      }
+      return rows
     }
-    const captainLine = (
+    if (isLegendOpen)
+      rows.push(
+        <Text key="crew-legend-strip" wrap="wrap">
+          {legend.map((e, i) => (
+            <Text key={`lg${i}`}>
+              <Text color={e.color}>{'● '}</Text>
+              <Text bold>{e.role}</Text>
+              <Text dimColor>{` ${e.note ?? e.types.join(', ')}${i < legend.length - 1 ? '   ' : ''}`}</Text>
+            </Text>
+          ))}
+        </Text>,
+      )
+    rows.push(
       <Text key="crew-captain" wrap="truncate-end">
         <Text color={ACCENT}>{ctx.captain.isBusy ? '(\\/)(°,,°)(\\/) ' : '(\\/)(-,,-)(\\/) '}</Text>
         <Text bold>{CAPTAIN_NAME}</Text>
         <Text dimColor>{` · ${captainQuip(ctx.captain)}`}</Text>
-      </Text>
+      </Text>,
     )
-    const group = (key: string, label: string, list: LensCrab[]) =>
+    const group = (id: 'crewWork' | 'crewBase', label: string, list: LensCrab[], isOpen: boolean) =>
       list.length ? (
-        <Box key={key} flexDirection="column">
-          <Text dimColor bold>{`${label} · ${list.length}`}</Text>
-          <Box flexDirection="column" paddingLeft={1}>
-            {list.map(m => crabLine(ctx, m))}
-          </Box>
+        <Box key={id} flexDirection="column">
+          {crewListHead(ctx, id, label, list.length)}
+          {isOpen ? (
+            <Box flexDirection="column" paddingLeft={1}>
+              {list.map(m => crabLine(ctx, m))}
+            </Box>
+          ) : null}
         </Box>
       ) : null
-    return [captainLine, group('crew-work', 'At work', working), group('crew-base', 'Reported back', base)].filter((x): x is RenderElement => x !== null)
+    for (const g of [group('crewWork', 'At work', working, workOpen), group('crewBase', 'Reported back', base, baseOpen)]) if (g) rows.push(g)
+    return rows
   })
 }
 

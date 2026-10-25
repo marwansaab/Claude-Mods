@@ -3,8 +3,8 @@ import type { Engine } from 'claude-code/testing'
 import type { On, RenderElement } from 'claude-code'
 
 import { skillListSvg, stepSvg, toolListSvg } from '../hooks/art'
-import { bandSvg, crewSvg } from '../hooks/crabs'
-import { BASE_MARK, characterKeyOf, crewNameOf, crewOrder, crewSummary, outcomeOf, progressOf, quipOf, withChange } from '../hooks/crew'
+import { bandSvg, beachSvg, crewListSvg, legendSvg } from '../hooks/crabs'
+import { BASE_MARK, characterKeyOf, crewNameOf, crewOrder, crewSummary, legendOf, outcomeOf, poseOf, progressOf, quipOf, withChange } from '../hooks/crew'
 import { DEFAULT_LAYOUT, DESKTOP_PLAN, DESKTOP_WRAP_UP, EMPTY_PLAN, countTool, groupLabel, listOrders, markAlways, movesAfter, parseLayout, planAfter, skillOfPath, stampSteps, toolGroups, toolRows } from '../hooks/track'
 import type { LensCrab, LensPlan, LensTool } from '../types'
 
@@ -419,7 +419,7 @@ describe('the kept layout', () => {
     await ui.press({ key: 'sort-name' })
     await ui.input({ key: 'filter', text: 'rea', kind: 'change' })
     await ui.unmount()
-    expect(kept.layout).toEqual({ folded: [], groupsOpen: false, groupExceptions: [], isGrouped: true, sort: 'name' })
+    expect(kept.layout).toEqual({ folded: [], groupsOpen: false, groupExceptions: [], isGrouped: true, sort: 'name', isLegendOpen: false })
   })
 
   test('a new session starts from the kept layout', async ($, on) => {
@@ -444,6 +444,7 @@ describe('the kept layout', () => {
       groupExceptions: [],
       isGrouped: true,
       sort: 'count',
+      isLegendOpen: false,
     })
     expect(parseLayout(undefined)).toEqual(DEFAULT_LAYOUT)
   })
@@ -539,45 +540,47 @@ describe('the crew', () => {
     // Pip made a call a second ago, so he is drawn working: legs scuttling, a loop that stays.
     const working = [crabOf('a', 'Pip', 'scout', { lastActiveAt: 89_000 })]
     const base = [crabOf('c', 'Barnacle', 'deckhand', { status: 'done', endedAt: 5_000 })]
-    const svg = crewSvg(360, working, base, { from: ['c', 'a', BASE_MARK], to: ['a', BASE_MARK, 'c'], at: 5_000 }, 0, 90_000).svg
-    expect(svg).not.toMatch(/@keyframes c[fh]\d/)
+    const move = { from: ['c', 'a', BASE_MARK], to: ['a', BASE_MARK, 'c'], at: 5_000 }
+    const svg = beachSvg(360, working, move, 0, 90_000).svg + crewListSvg(360, 'work', working, move, 0, 90_000).svg + crewListSvg(360, 'base', base, move, 0, 90_000).svg
+    expect(svg).not.toMatch(/@keyframes c[fhlw]\d/)
     expect(svg).not.toMatch(/class="[^"]*\b(c-hop|c-raise|c-spark)\b/)
     expect(svg).toContain('class="c-legA"')
   })
 
-  test('a crab that finishes flies down into base, cheering, lit; the one that closes the gap is not lit', async () => {
+  test('a crab that reports back flies into the top of the list, lit; the one that closes the gap at work is not', async () => {
     const working = [crabOf('a', 'Pip', 'scout')]
     const base = [crabOf('c', 'Barnacle', 'deckhand', { status: 'done', endedAt: 5_000 })]
-    // Barnacle was first at work; now Pip is alone at work and Barnacle back at base.
-    const svg = crewSvg(360, working, base, { from: ['c', 'a', BASE_MARK], to: ['a', BASE_MARK, 'c'], at: 5_000 }, 0, 5_100).svg
-    // Pip (row 0) rises into the gap: Barnacle's row is gone and the beach is a lane shorter.
-    expect(svg).toContain('@keyframes cf0{0%{transform:translateY(80px)}')
-    expect(svg).not.toContain('.cf0h{')
-    // Barnacle (row 1) comes down from the top of the working list: it is the news.
-    expect(svg).toMatch(/@keyframes cf1\{0%\{transform:translateY\(-\d+px\)\}/)
-    expect(svg).toContain('.cf1h{')
-    expect(svg).toContain('class="c-hop"')
-    // The beach loses a lane, so the AT WORK header glides up with it; REPORTED BACK is new, and fades in.
-    expect(svg).toMatch(/@keyframes ch0\{from\{transform:translateY\(\d+px\)\}/)
-    expect(svg).not.toContain('@keyframes ch1')
-    expect(svg).toContain('REPORTED BACK')
+    // Barnacle was first at work; now Pip is alone at work and Barnacle has reported back.
+    const move = { from: ['c', 'a', BASE_MARK], to: ['a', BASE_MARK, 'c'], at: 5_000 }
+    const work = crewListSvg(360, 'work', working, move, 0, 5_100).svg
+    const back = crewListSvg(360, 'base', base, move, 0, 5_100).svg
+    // Pip rises one row into the gap, unlit.
+    expect(work).toContain('@keyframes cf0{0%{transform:translateY(42px)}')
+    expect(work).not.toContain('.cf0h{')
+    // Barnacle comes in from just under the list's title, fading in, lit, cheering.
+    expect(back).toContain('@keyframes cf0{0%{transform:translateY(-50px);opacity:0}')
+    expect(back).toContain('.cf0h{')
+    expect(back).toContain('class="c-hop"')
+    // On the beach his lane is gone; Pip's glides up into it.
+    expect(beachSvg(360, working, move, 0, 5_100).svg).toMatch(/@keyframes cl1\{from\{transform:translateY\(38px\)\}/)
   })
 
   test('a new crab flies in at the foot of the working list, fading in', async () => {
     const working = [crabOf('a', 'Pip', 'scout', { toolCalls: 9 }), crabOf('b', 'Ada', 'navigator', { toolCalls: 0 })]
-    const svg = crewSvg(360, working, [], { from: ['a', BASE_MARK], to: ['a', 'b', BASE_MARK], at: 5_000 }, 0, 5_100).svg
-    // Ada's row comes up from below the last working row; her lane fades in on the beach.
-    expect(svg).toContain('@keyframes cf1{0%{transform:translateY(42px);opacity:0}')
-    expect(svg).toContain('.cf1h{')
-    // Ada's lane on the beach (lane 2, under the captain's and Pip's) fades in.
-    expect(svg).toContain('.cl2{animation:sl-fade')
+    const move = { from: ['a', BASE_MARK], to: ['a', 'b', BASE_MARK], at: 5_000 }
+    // Ada's row comes up from below the last working row, lit.
+    const work = crewListSvg(360, 'work', working, move, 0, 5_100).svg
+    expect(work).toContain('@keyframes cf1{0%{transform:translateY(42px);opacity:0}')
+    expect(work).toContain('.cf1h{')
+    // Her lane on the beach (lane 2, under the captain's and Pip's) fades in.
+    expect(beachSvg(360, working, move, 0, 5_100).svg).toContain('.cl2{animation:sl-fade')
   })
 
   test('on the beach, a crab walks from where its progress was, says its line, and thinks in a dashed bubble', async () => {
     // Pip's last call, just now, moved his progress on: he is a moment into his walk.
     const pip = crabOf('a', 'Pip', 'scout', { toolCalls: 5, progressBefore: 0.1, progressAt: 5_000, lastActiveAt: 5_000 })
     const ada = crabOf('b', 'Ada', 'navigator', { activity: 'think', lastActiveAt: 5_000 })
-    const svg = crewSvg(360, [pip, ada], [], undefined, 0, 5_200).svg
+    const svg = beachSvg(360, [pip, ada], undefined, 0, 5_200).svg
     // Lane 0 is the captain's; Pip walks lane 1.
     expect(svg).toMatch(/@keyframes cw1\{from\{transform:translateX\(-\d+(\.\d)?px\)\}/)
     expect(svg).toContain('-0.200s both}')
@@ -586,7 +589,13 @@ describe('the crew', () => {
     expect(svg).toContain(quipOf(pip, 5_200))
     expect(svg).toContain('stroke-dasharray="3 2"')
     // Long after, the walk is over and the beach is still but for its loops.
-    expect(crewSvg(360, [pip, ada], [], undefined, 0, 60_000).svg).not.toContain('@keyframes cw1')
+    expect(beachSvg(360, [pip, ada], undefined, 0, 60_000).svg).not.toContain('@keyframes cw1')
+  })
+
+  test('a crab’s sparkles burst while it cheers and are gone after', async () => {
+    const done = crabOf('c', 'Barnacle', 'deckhand', { status: 'done', endedAt: 5_000 })
+    expect(crewListSvg(360, 'base', [done], undefined, 0, 5_300).svg).toContain('c-spark')
+    expect(crewListSvg(360, 'base', [done], undefined, 0, 9_000).svg).not.toMatch(/<path[^>]*fill="#ffd54a"/)
   })
 
   test('no drawing gives an element the same attribute twice, which would break the whole picture', async () => {
@@ -607,8 +616,11 @@ describe('the crew', () => {
       crabOf('e', 'Cookie', 'cook', { status: 'stopped', endedAt: 4_000 }),
     ]
     const move = { from: ['c', 'b', 'a', BASE_MARK, 'd'], to: ['a', 'b', 'w', BASE_MARK, 'c', 'd', 'e'], at: 5_100 }
-    expect(doubled(crewSvg(360, working, base, move, 5_000, now).svg)).toBe(false)
-    expect(doubled(crewSvg(360, working, base, undefined, 0, 60_000).svg)).toBe(false)
+    for (const at of [now, 60_000]) {
+      expect(doubled(beachSvg(360, working, move, 5_000, at).svg)).toBe(false)
+      expect(doubled(crewListSvg(360, 'work', working, move, 5_000, at).svg)).toBe(false)
+      expect(doubled(crewListSvg(360, 'base', base, move, 5_000, at).svg)).toBe(false)
+    }
     expect(doubled(bandSvg(600, [...working, ...base], now).svg)).toBe(false)
     expect(doubled(stepSvg(300, { text: 'x', status: 'in_progress', changedAt: 5_000 }, 0, 5_000, now).svg)).toBe(false)
     expect(doubled(toolListSvg(300, [toolRow('Read', 5_000)], true, { from: ['Bash'], to: ['Read', 'Bash'], at: 5_000 }, true, () => 5_000, now).svg)).toBe(false)
@@ -617,7 +629,7 @@ describe('the crew', () => {
   test('the captain walks his lane as Claude’s to-do list moves, and a crab that is done stands past its flag', async () => {
     const skipper = { captain: { isBusy: true, activity: 'edit' as const, detail: 'art.ts', lastActiveAt: 5_000 }, done: 2, total: 4, doneBefore: 1, changedAt: 5_000 }
     const pip = crabOf('a', 'Pip', 'scout', { status: 'done', endedAt: 5_000, progressBefore: 0.4, progressAt: 5_000 })
-    const d = crewSvg(360, [pip], [], undefined, 0, 5_200, skipper)
+    const d = beachSvg(360, [pip], undefined, 0, 5_200, skipper)
     const svg = d.svg
     // Lane 0 is the captain's: he is walking from a quarter of the way to half, saying what he does.
     expect(svg).toMatch(/@keyframes cw0\{from\{transform:translateX\(-\d+(\.\d)?px\)\}/)
@@ -628,10 +640,46 @@ describe('the crew', () => {
     expect(svg).toContain('class="c-hop"')
   })
 
+  test('a crab scurries for 3 s after each call, at twice its pace, then walks', async () => {
+    const pip = crabOf('a', 'Pip', 'scout', { lastActiveAt: 5_000 })
+    expect(poseOf(pip, 6_000)).toBe('scurry')
+    expect(poseOf(pip, 9_000)).toBe('work')
+    expect(poseOf(pip, 30_000)).toBe('wait')
+    // The legs keep their class, run at half the period, and keep their phase.
+    expect(beachSvg(360, [pip], undefined, 0, 6_000).svg).toContain('animation-duration:0.225s;')
+    expect(beachSvg(360, [pip], undefined, 0, 9_000).svg).not.toContain('animation-duration:0.225s;')
+  })
+
+  test('who’s who: the captain, then each kind of crab in the race, with the agent types it stands for', async () => {
+    const crew = [
+      crabOf('a', 'Pip', 'scout', { type: 'Explore', startedAt: 1_000 }),
+      crabOf('b', 'Barnacle', 'deckhand', { type: 'general-purpose', startedAt: 2_000 }),
+      crabOf('c', 'Rusty', 'deckhand', { type: 'claude', startedAt: 3_000 }),
+      crabOf('d', 'Wren', 'scout', { type: 'Explore', startedAt: 4_000 }),
+    ]
+    const entries = legendOf(crew)
+    // Agent types as Claude Code spells them; the captain, who stands for no type, gets a plain label.
+    expect(entries.map(e => [e.role, e.note ?? e.types.join(', ')])).toEqual([
+      ['Captain', 'Main thread'],
+      ['Scout', 'Explore'],
+      ['Deckhand', 'general-purpose, claude'],
+    ])
+    const d = legendSvg(360, entries, 5_000, 5_100)
+    expect(d.alt).toBe("Who's who: Captain = Main thread; Scout = Explore; Deckhand = general-purpose, claude")
+    // The types are drawn as code; the captain's label is not.
+    expect(d.svg).toMatch(/font-family="ui-monospace[^"]*">Explore</)
+    expect(d.svg).toMatch(/font-size="10.5">Main thread</)
+    // The legend's crabs stand still; the cards pop in as it opens.
+    expect(d.svg).not.toMatch(/class="c-(legA|legB|snip|bob|blink)"/)
+    expect(d.svg).toContain('class="pop"')
+  })
+
   test('a crab in its section opens comes in once, and says what it shows', async () => {
-    const d = crewSvg(360, [crabOf('a', 'Pip', 'scout')], [], undefined, 5_000, 5_100)
+    const pip = crabOf('a', 'Pip', 'scout')
+    const d = crewListSvg(360, 'work', [pip], undefined, 5_000, 5_100)
     expect(d.svg).toMatch(/class="in" style="animation-delay:-0\.100s;"/)
-    expect(d.alt).toBe('Captain Clawd: Off watch, awaiting orders. At work: Pip the Scout, ≈25%, reading config.ts')
+    expect(d.alt).toBe('At work: Pip the Scout, ≈25%, reading config.ts')
+    expect(beachSvg(360, [pip], undefined, 0, 5_100).alt).toBe(`Captain Clawd: Off watch, awaiting orders. Pip: ${quipOf(pip, 5_100)}`)
   })
 })
 
@@ -795,23 +843,101 @@ describe('the session’s own events', () => {
     // Past the crabs' own arrival on the beach, which flies too.
     await clock.advance(2_000)
     await $.turn.complete({ reason: 'answer', answer: '', text: '', agentId: 'agent-t1' } as never)
-    const crewPicture = async (ui: { findAll: (q: object) => Promise<{ props: Record<string, unknown> }[]> }) =>
-      (await ui.findAll({})).find(f => /At work|Reported back/.test(String(f.props.alt ?? '')))
+    const crewPicture = async (ui: { findAll: (q: object) => Promise<{ props: Record<string, unknown> }[]> }, list: RegExp) =>
+      (await ui.findAll({})).find(f => list.test(String(f.props.alt ?? '')))
     // Just done: still on the beach, cheering, walked past his flag; nothing has flown yet.
     let ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    let crew = await crewPicture(ui)
+    let crew = await crewPicture(ui, /^At work/)
     expect(String(crew?.props.alt)).toMatch(/At work: .*Pip the Scout, done/)
-    expect(String(crew?.props.source)).toContain('class="c-hop"')
     expect(String(crew?.props.source)).not.toMatch(/@keyframes cf\d/)
+    // He cheers on the beach, past his flag.
+    const beach = await crewPicture(ui, /^Captain Clawd/)
+    expect(String(beach?.props.source)).toContain('class="c-hop"')
     await ui.unmount()
     // Three seconds on he reports back: drawn at that moment, he is flying down to the top of the list.
     // (The timer's work is asynchronous; a moment more lets it note the move, as the app's redraw would.)
     await clock.advance(3_100)
     await clock.advance(20)
     ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    crew = await crewPicture(ui)
+    crew = await crewPicture(ui, /^Reported back/)
     expect(String(crew?.props.alt)).toMatch(/Reported back: Pip the Scout, done/)
-    expect(String(crew?.props.source)).toMatch(/@keyframes cf\d\{0%\{transform:translateY\(-\d+px\)\}/)
+    expect(String(crew?.props.source)).toMatch(/@keyframes cf\d\{0%\{transform:translateY\(-\d+px\);opacity:0\}/)
+    await ui.unmount()
+  })
+
+  test('the ? by the crew opens who’s who, and the choice is kept', async ($, on) => {
+    mock.clock(on, { now: 10_000 })
+    const kept = keptStore(on)
+    const spawn = spawner($, on)
+    await spawn('t1', 'Explore', 'Find the config loader')
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE, surface })
+      expect(await shows(ui, /Who's who|Main thread/)).toBe(false)
+      await ui.press({ key: 'crew-legend' })
+      expect(await shows(ui, /Explore/)).toBe(true)
+      expect(await shows(ui, /Main thread/)).toBe(true)
+      expect((kept.layout as { isLegendOpen: boolean }).isLegendOpen).toBe(true)
+      await ui.press({ key: 'crew-legend' })
+      expect(await shows(ui, /Main thread/)).toBe(false)
+      await ui.unmount()
+    }
+  })
+
+  test('At work and Reported back each fold on their own; the beach stays', async ($, on) => {
+    const clock = mock.clock(on, { now: 10_000 })
+    mock.store(on)
+    on('turn.complete', () => ({ text: '' }))
+    const spawn = spawner($, on)
+    await spawn('t1', 'Explore', 'Find the config loader')
+    await spawn('t2', 'Plan', 'Plan the migration')
+    await clock.advance(2_000)
+    await $.turn.complete({ reason: 'error', answer: '', text: '', agentId: 'agent-t1' } as never)
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE, surface })
+      expect(await shows(ui, /Ada the Navigator/)).toBe(true)
+      await ui.press({ key: 'sec-crewWork' })
+      expect(await shows(ui, /Ada the Navigator/)).toBe(false)
+      expect(await shows(ui, /Pip the Scout/)).toBe(true)
+      await ui.press({ key: 'sec-crewBase' })
+      expect(await shows(ui, /Pip the Scout/)).toBe(false)
+      // The titles stay, and so does the captain.
+      expect(await ui.find({ key: 'sec-crewWork' })).toBeDefined()
+      expect(await shows(ui, /Captain Clawd/)).toBe(true)
+      // Titles read like the other sections', not in capitals.
+      expect(await shows(ui, /Reported back/)).toBe(true)
+      expect(await shows(ui, /REPORTED BACK/)).toBe(false)
+      await ui.press({ key: 'sec-crewWork' })
+      await ui.press({ key: 'sec-crewBase' })
+      expect(await shows(ui, /Ada the Navigator/)).toBe(true)
+      await ui.unmount()
+    }
+  })
+
+  test('a new race starts with Reported back empty: the last race’s crabs leave the lists', async ($, on) => {
+    const clock = mock.clock(on, { now: 10_000 })
+    mock.store(on)
+    on('turn.complete', () => ({ text: '' }))
+    const spawn = spawner($, on)
+    await spawn('t1', 'Explore', 'Find the config loader')
+    await clock.advance(2_000)
+    await $.turn.complete({ reason: 'answer', answer: '', text: '', agentId: 'agent-t1' } as never)
+    await clock.advance(4_000)
+    let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect(await shows(ui, /1 back/)).toBe(true)
+    expect(await ui.find({ key: 'sec-crewBase' })).toBeDefined()
+    await ui.unmount()
+    // The next crab sets out with no one at work: a new race.
+    await spawn('t2', 'Plan', 'Plan the migration')
+    ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect(await shows(ui, /1 at work/)).toBe(true)
+    expect(await shows(ui, /back/)).toBe(false)
+    expect(await ui.find({ key: 'sec-crewBase' })).toBeUndefined()
+    expect(await shows(ui, /Pip the Scout/)).toBe(false)
+    await ui.unmount()
+    // A crab sent while one is still out joins the same race.
+    await spawn('t3', 'general-purpose', 'Count the lines')
+    ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect(await shows(ui, /2 at work/)).toBe(true)
     await ui.unmount()
   })
 

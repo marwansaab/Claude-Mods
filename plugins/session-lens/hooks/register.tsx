@@ -43,6 +43,7 @@ const crewTick = atom({ plugin: 'session-lens', key: 'crewTick' } as const, 0)
 const crewBandSince = atom({ plugin: 'session-lens', key: 'crewBandSince' } as const, 0)
 const IDLE: LensCaptain = { isBusy: false, activity: 'other', detail: '', lastActiveAt: 0 }
 const captain = atom({ plugin: 'session-lens', key: 'captain' } as const, IDLE)
+const raceSince = atom({ plugin: 'session-lens', key: 'raceSince' } as const, 0)
 
 /** The captain is the main thread: what it is doing now, or that it is waiting for you. */
 async function setCaptain($: EngineInterface, isBusy: boolean, activity: LensActivity, detail: string): Promise<void> {
@@ -87,7 +88,7 @@ async function safely(work: () => Promise<unknown>): Promise<void> {
 async function noteMoves($: EngineInterface): Promise<void> {
   const at = await $.clock.now()
   const v = viewOf(await read($, view))
-  const orders = listOrders(await read($, tools), await read($, skills), await read($, servers), v.sort, await read($, crew), at)
+  const orders = listOrders(await read($, tools), await read($, skills), await read($, servers), v.sort, await read($, crew), at, await read($, raceSince))
   await update($, moves, cur => movesAfter(cur, orders, at) ?? cur)
 }
 
@@ -228,6 +229,8 @@ export const register: Register = (on, options) => {
       if (started.deny !== undefined) return
       const at = await $.clock.now()
       const character = characterKeyOf(e.subagentType)
+      // No one at work: this crab starts a new race, and the crabs of the last one leave the lists.
+      if (!Object.values(await read($, crew)).some(m => m.status === 'running')) await update($, raceSince, () => at)
       await update($, crew, all => {
         const list = Object.values(all)
         const m: LensCrab = {
@@ -444,6 +447,7 @@ export const register: Register = (on, options) => {
       moves: await read($, moves),
       crew: await read($, crew),
       captain: await read($, captain),
+      raceSince: await read($, raceSince),
       // Read so the timer's tick redraws the pane; the drawing itself goes by the clock.
       now: Math.max(await $.clock.now(), await read($, crewTick)),
       act: {
@@ -454,6 +458,7 @@ export const register: Register = (on, options) => {
         // A new sort is a change of order: the rows fly to their new places (noted by setView).
         setSort: (sort: LensSort) => setView(v => (v.sort === sort ? {} : { sort })),
         setFilter: (filter: string) => setView(() => ({ filter })),
+        toggleLegend: () => setView((v, at) => ({ isLegendOpen: !v.isLegendOpen, toggledAt: { ...v.toggledAt, legend: at } })),
       },
     })
   })

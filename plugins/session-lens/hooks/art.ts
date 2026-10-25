@@ -37,7 +37,7 @@ svg{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .halo{transform-box:fill-box;transform-origin:center;animation:sl-halo 1.8s ease-out infinite}
 .spin{transform-box:fill-box;transform-origin:center;animation:sl-spin 1.1s linear infinite}
 .sheenr{animation:sl-sheen 2.6s cubic-bezier(.4,0,.2,1) infinite}
-@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}.sheenr,.c-spark{display:none}}
 </style>`
 
 /** How long each one-shot animation runs, in seconds, as STYLE sets it. */

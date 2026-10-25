@@ -165,12 +165,16 @@ export function withChange(m: LensCrab, patch: Partial<LensCrab>, at: number): L
   return Math.abs(now - was) > 0.001 ? { ...next, progressBefore: was, progressAt: at } : next
 }
 
-export type Pose = 'work' | 'think' | 'wait' | 'done' | 'failed' | 'stopped'
+export type Pose = 'work' | 'scurry' | 'think' | 'wait' | 'done' | 'failed' | 'stopped'
+
+/** A call this recent: the crab scurries, at twice its pace. */
+export const SCURRY_MS = 3_000
 
 export function poseOf(m: LensCrab, now: number): Pose {
   if (m.status !== 'running') return m.status
   if (m.activity === 'think' || m.activity === 'start') return 'think'
-  return now - m.lastActiveAt > STALL_MS ? 'wait' : 'work'
+  const quiet = now - m.lastActiveAt
+  return quiet > STALL_MS ? 'wait' : quiet < SCURRY_MS ? 'scurry' : 'work'
 }
 
 const VERB: Record<LensActivity, string> = {
@@ -218,12 +222,16 @@ export const LINGER_MS = 3000
 /** Whether a crab is on the beach: still at work, or done and standing past its flag for a moment. */
 export const isOnBeach = (m: LensCrab, now: number): boolean => m.status === 'running' || (m.status === 'done' && now - (m.endedAt ?? 0) < LINGER_MS)
 
+/** The crabs of the race that began at `since`: those still out, and those that came back since. */
+export const raceCrew = (crew: Record<string, LensCrab>, since: number): LensCrab[] =>
+  Object.values(crew).filter(m => m.status === 'running' || (m.endedAt ?? 0) >= since)
+
 /**
- * The crabs on the beach, in the order they set out: each keeps its lane and its row while it works (the
- * race is in how far each has walked), and the ones that reported back, the latest first.
+ * The race's crabs on the beach, in the order they set out: each keeps its lane and its row while it
+ * works (the race is in how far each has walked), and the ones that reported back, the latest first.
  */
-export function crewLists(crew: Record<string, LensCrab>, now: number): { working: LensCrab[]; base: LensCrab[] } {
-  const all = Object.values(crew)
+export function crewLists(crew: Record<string, LensCrab>, now: number, since = 0): { working: LensCrab[]; base: LensCrab[] } {
+  const all = raceCrew(crew, since)
   // A stable sort: crabs that set out at the same moment keep the order they were spawned in.
   const working = all.filter(m => isOnBeach(m, now)).sort((a, b) => a.startedAt - b.startedAt)
   const base = all.filter(m => !isOnBeach(m, now)).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0) || byName(a, b))
@@ -231,13 +239,13 @@ export function crewLists(crew: Record<string, LensCrab>, now: number): { workin
 }
 
 /** The crew's order as one list, the base mark between the two halves: what the flights compare. */
-export function crewOrder(crew: Record<string, LensCrab>, now: number): string[] {
-  const { working, base } = crewLists(crew, now)
+export function crewOrder(crew: Record<string, LensCrab>, now: number, since = 0): string[] {
+  const { working, base } = crewLists(crew, now, since)
   return [...working.map(m => m.id), BASE_MARK, ...base.map(m => m.id)]
 }
 
-export function crewSummary(crew: Record<string, LensCrab>): string {
-  const all = Object.values(crew)
+export function crewSummary(crew: Record<string, LensCrab>, since = 0): string {
+  const all = raceCrew(crew, since)
   const out = all.filter(m => m.status === 'running').length
   const back = all.length - out
   return [out ? `${out} at work` : '', back ? `${back} back` : ''].filter(Boolean).join(' · ')
@@ -363,4 +371,25 @@ export function captainQuip(c: LensCaptain): string {
   if (!c.isBusy) return 'Off watch, awaiting orders'
   const list = CAPTAIN_LINES[c.activity]
   return (list[hash(c.activity + c.detail) % list.length] ?? '').replace('{x}', clip(c.detail, 22) || 'the code')
+}
+
+// ---------- who's who ----------
+
+/**
+ * One character on duty: who it is, and the agent types it stands for in this race, spelled as Claude Code
+ * names them (`Explore`, `general-purpose`). The captain stands for no type: `note` says what he is instead.
+ */
+export type LegendEntry = { character: string; role: string; color: string; types: string[]; note?: string }
+
+/** The characters on duty: the captain, then each kind of crab in the race, in the order they first set out. */
+export function legendOf(crew: readonly LensCrab[]): LegendEntry[] {
+  const out: LegendEntry[] = [{ character: 'captain', role: 'Captain', color: characterOf('captain').color, types: [], note: 'Main thread' }]
+  for (const m of [...crew].sort((a, b) => a.startedAt - b.startedAt)) {
+    const c = characterOf(m.character)
+    const type = bareType(m.type)
+    const have = out.find(e => e.character === c.key)
+    if (!have) out.push({ character: c.key, role: c.role, color: c.color, types: [type] })
+    else if (!have.types.includes(type)) have.types.push(type)
+  }
+  return out
 }
