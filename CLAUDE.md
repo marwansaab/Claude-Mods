@@ -27,7 +27,15 @@ Inside a mod:
 
 1. Create `plugins/<mod>/` with the files above; `name` in `plugin.json` equals the folder name.
 2. Add it to `.claude-plugin/marketplace.json` and to the *Mods* table in `README.md`.
-3. Write its `README.md`, covering at least: what it does, install line, commands, settings, how it works, known limits.
+3. Write its `README.md` with these headings, in this order (the mod READMEs here all follow it):
+   - `# <mod>`, then a short lead paragraph: what the mod is, in a sentence or two (a screenshot may follow).
+   - `## What it does`: the features. Anything mod-specific (a cast of characters, a pane's controls, hints) is a `###` subsection here, not a heading of its own.
+   - `## Install`: the `/plugin install <mod> --marketplace marwansaab/Claude-Mods` line, and anything to do before or after (a mod it replaces, a reload).
+   - `## Commands`: a `| Command | Does |` table, tools for Claude included.
+   - `## Settings`: where to set them (`/config`, or `pluginConfigs` in `~/.claude/settings.json`, with a JSON example), then a `| Setting | Default | Effect |` table keyed by the `userConfig` key.
+   - `## How it works`: the hooks and state, briefly.
+   - `## Known limits`.
+   - `## Credits` when the mod draws on someone else's work, then `## Licence`: MIT, linking the root `LICENSE`.
 4. Validate, type-check and test (below) before committing.
 
 ## Developing a mod
