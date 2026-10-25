@@ -703,6 +703,23 @@ describe('the crew', () => {
     expect(d.svg).toContain('class="pop"')
   })
 
+  test('with the crabs quiet, the beach has no bubbles and the crabs back have no last line', async () => {
+    const pip = crabOf('a', 'Pip', 'scout', { toolCalls: 4 })
+    const wren = crabOf('b', 'Wren', 'scout', { status: 'done', startedAt: 1_000, endedAt: 9_000 })
+    const talking = beachSvg(360, [pip], undefined, 0, 10_000)
+    const quiet = beachSvg(360, [pip], undefined, 0, 10_000, undefined, false)
+    expect(talking.svg).toContain('class="bub"')
+    expect(quiet.svg).not.toContain('class="bub"')
+    // The description says who is on the beach and how far each has got, not their lines.
+    expect(quiet.alt).toBe('Captain Clawd, off watch. Pip, ≈25%')
+    const said = crewListSvg(360, 'base', [wren], undefined, 0, 10_000)
+    const unsaid = crewListSvg(360, 'base', [wren], undefined, 0, 10_000, false)
+    expect(said.svg).toContain('“')
+    expect(unsaid.svg).not.toContain('“')
+    // A row with no line under it is shorter.
+    expect(unsaid.height).toBeLessThan(said.height)
+  })
+
   test('a crab in its section opens comes in once, and says what it shows', async () => {
     const pip = crabOf('a', 'Pip', 'scout')
     const d = crewListSvg(360, 'work', [pip], undefined, 5_000, 5_100)
@@ -1160,6 +1177,25 @@ describe('the crew band', () => {
     expect(await ui.find({ text: 'engine band' })).toBeDefined()
     expect(await ui.find({ key: 'lens-crew-open' })).toBeUndefined()
     await ui.unmount()
+  })
+})
+
+describe('the showQuips setting', () => {
+  test('off, the crabs say nothing in the pane, in pictures or in text', { options: { showQuips: false } }, async ($, on) => {
+    mock.clock(on, { now: 10_000 })
+    mock.store(on)
+    on('tool.call', () => ({ result: {} }))
+    const spawn = spawner($, on)
+    await spawn('t1', 'Explore', 'Find the config loader')
+    await $.tool.call({ tool: 'Read', file_path: '/src/config.ts', agentId: 'agent-t1' } as never)
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE, surface })
+      // The crab and its work are there; no line of its, and no quote.
+      expect(await shows(ui, /Pip/)).toBe(true)
+      expect(await shows(ui, /“/)).toBe(false)
+      expect(await shows(ui, /Pip: /)).toBe(false)
+      await ui.unmount()
+    }
   })
 })
 
