@@ -1,6 +1,6 @@
 {
   "name": "session-lens",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A session lens pane (/lens): Claude's to-do list, its crew of subagents as animated crabs with a progress band above the prompt, and the skills and tools this session used, each section folding on its own. Replaces crab-crew: disable or don't install crab-crew alongside it.",
   "author": {
     "name": "Marwan Saab",

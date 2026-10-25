@@ -5,7 +5,7 @@ import type { Elements, RenderElement } from 'claude-code'
 import type { LensCaptain, LensCrab, LensMove, LensPlan, LensSection, LensSkill, LensSort, LensTool, LensView } from '../types'
 import { ACCENT, barShare, groupTileSvg, groupTotalSvg, hueOf, skillListSvg, stepSvg, todoProgressSvg, toolListSvg } from './art'
 import { bandSvg, beachSvg, crewListSvg, legendSvg } from './crabs'
-import { CAPTAIN_NAME, captainQuip, characterOf, crewLists, crewSummary, duration, isOnBeach, legendOf, progressLabel, progressOf, quipOf } from './crew'
+import { CAPTAIN_NAME, captainQuip, characterOf, crabMeta, crewLists, crewSummary, duration, isOnBeach, legendOf, listTotals, progressLabel, progressOf, quipOf } from './crew'
 import { doneOf, isGroupOpen, plural, skillList, toolGroups, toolRows } from './track'
 import type { ToolGroup, ToolRow } from './track'
 
@@ -192,7 +192,10 @@ function crabLine(ctx: Ctx, m: LensCrab): RenderElement {
           )}
         </Box>
       </Box>
-      <Box paddingLeft={2}>
+      <Box paddingLeft={2} flexDirection="column">
+        <Text dimColor wrap="truncate-end">
+          {crabMeta(m, ctx.now)}
+        </Text>
         <Text dimColor wrap="truncate-end">
           {m.description}
           <Text italic>{`  “${quipOf(m, ctx.now)}”`}</Text>
@@ -202,8 +205,8 @@ function crabLine(ctx: Ctx, m: LensCrab): RenderElement {
   )
 }
 
-/** A list inside the crew: a title that folds it, like a section's, and its count. */
-function crewListHead(ctx: Ctx, id: 'crewWork' | 'crewBase', label: string, count: number): RenderElement {
+/** A list inside the crew: a title that folds it, like a section's, and the list's totals beside it. */
+function crewListHead(ctx: Ctx, id: 'crewWork' | 'crewBase', label: string, list: LensCrab[]): RenderElement {
   const { Text, Button } = ctx.ui
   const isOpen = !ctx.view.folded.includes(id)
   return (
@@ -212,7 +215,7 @@ function crewListHead(ctx: Ctx, id: 'crewWork' | 'crewBase', label: string, coun
       <Text bold dimColor>
         {label}
       </Text>
-      <Text dimColor>{`  ${count}`}</Text>
+      <Text dimColor>{listTotals(id === 'crewWork' ? 'work' : 'base', list, ctx.now).map(part => ` · ${part}`).join('')}</Text>
     </Button>
   )
 }
@@ -251,11 +254,11 @@ function crewSection(ctx: Ctx): RenderElement {
       }
       rows.push(picture(ctx, 'crew-beach', beachSvg(w, working, ctx.moves.crew, sectionAt(ctx, 'crew'), ctx.now, skipper), w)!)
       if (working.length) {
-        rows.push(crewListHead(ctx, 'crewWork', 'At work', working.length))
+        rows.push(crewListHead(ctx, 'crewWork', 'At work', working))
         if (workOpen) rows.push(picture(ctx, 'crew-work', crewListSvg(w, 'work', working, ctx.moves.crew, latest(sectionAt(ctx, 'crew'), ctx.view.toggledAt.crewWork), ctx.now), w)!)
       }
       if (base.length) {
-        rows.push(crewListHead(ctx, 'crewBase', 'Reported back', base.length))
+        rows.push(crewListHead(ctx, 'crewBase', 'Reported back', base))
         if (baseOpen) rows.push(picture(ctx, 'crew-base', crewListSvg(w, 'base', base, ctx.moves.crew, latest(sectionAt(ctx, 'crew'), ctx.view.toggledAt.crewBase), ctx.now), w)!)
       }
       return rows
@@ -282,7 +285,7 @@ function crewSection(ctx: Ctx): RenderElement {
     const group = (id: 'crewWork' | 'crewBase', label: string, list: LensCrab[], isOpen: boolean) =>
       list.length ? (
         <Box key={id} flexDirection="column">
-          {crewListHead(ctx, id, label, list.length)}
+          {crewListHead(ctx, id, label, list)}
           {isOpen ? (
             <Box flexDirection="column" paddingLeft={1}>
               {list.map(m => crabLine(ctx, m))}

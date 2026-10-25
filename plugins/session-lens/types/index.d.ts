@@ -87,6 +87,12 @@ export type LensCrab = {
   detail: string
   toolCalls: number
   errors: number
+  /** The model it runs on, as the engine names it (`claude-haiku-4-5`); each request may update it. */
+  model?: string
+  /** Tokens its requests used: input, output and cache reads and writes, summed over every request. */
+  tokens?: number
+  /** Model requests it made. */
+  steps?: number
   /** From the agent's own to-do list, when it keeps one. */
   todoDone?: number
   todoTotal?: number

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { LensActivity, LensCaptain, LensCrab, LensSection, LensSort, LensView } from '../types'
-import { LINGER_MS, activityOf, characterKeyOf, crewNameOf, detailOf, outcomeOf, todoPatch, withChange } from './crew'
+import { LINGER_MS, activityOf, characterKeyOf, crewNameOf, detailOf, outcomeOf, todoPatch, usageTokens, withChange } from './crew'
 import {
   DEFAULT_VIEW,
   EMPTY_PLAN,
@@ -271,6 +271,9 @@ export const register: Register = (on, options) => {
           detail: '',
           toolCalls: 0,
           errors: 0,
+          model: started.model,
+          tokens: 0,
+          steps: 0,
           progressBefore: 0,
           progressAt: at,
         }
@@ -285,7 +288,7 @@ export const register: Register = (on, options) => {
     return started
   }).catch(($, e, next) => next(e))
 
-  // Each model request of a subagent: its crab is thinking.
+  // Each model request of a subagent: its crab is thinking, and once answered, what it used is added up.
   on('turn.step', async function* ($, e, next) {
     const agentId = e.agentId
     await safely(async () => {
@@ -293,7 +296,11 @@ export const register: Register = (on, options) => {
       const at = await $.clock.now()
       await touchCrab($, agentId, () => ({ activity: 'think', detail: '', lastActiveAt: at }))
     })
-    return yield* next(e)
+    const result = yield* next(e)
+    const usage = result.usage
+    if (agentId && usage)
+      await safely(() => touchCrab($, agentId, m => ({ model: usage.model || m.model, tokens: (m.tokens ?? 0) + usageTokens(usage), steps: (m.steps ?? 0) + 1 })))
+    return result
   })
 
   // A subagent's run ends: its crab is done, failed or stopped. One that is done walks past its flag and
@@ -305,7 +312,15 @@ export const register: Register = (on, options) => {
       if (!agentId) return setCaptain($, false, 'other', '')
       const at = await $.clock.now()
       const status = outcomeOf(e.reason)
-      if (!(await touchCrab($, agentId, () => ({ status, endedAt: at, lastActiveAt: at })))) return
+      // A run whose requests were not seen one by one: its own totals stand for them.
+      const usage = e.usage
+      const patch = (m: LensCrab) => ({
+        status,
+        endedAt: at,
+        lastActiveAt: at,
+        ...(!m.steps && usage ? { model: usage.model || m.model, tokens: usageTokens(usage) } : {}),
+      })
+      if (!(await touchCrab($, agentId, patch))) return
       await noteMoves($)
       settle($)
       if (status === 'done')
