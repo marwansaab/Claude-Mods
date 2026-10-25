@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { LensCrab, LensCrewSort, LensSection, LensSort, LensView } from '../types'
-import { activityOf, characterKeyOf, crewNameOf, detailOf, outcomeOf, todoPatch, withChange } from './crew'
+import type { LensActivity, LensCaptain, LensCrab, LensSection, LensSort, LensView } from '../types'
+import { LINGER_MS, activityOf, characterKeyOf, crewNameOf, detailOf, outcomeOf, todoPatch, withChange } from './crew'
 import {
   DEFAULT_VIEW,
   EMPTY_PLAN,
@@ -41,6 +41,14 @@ const moves = atom({ plugin: 'session-lens', key: 'moves' } as const, {})
 const crew = atom({ plugin: 'session-lens', key: 'crew' } as const, {} as Record<string, LensCrab>)
 const crewTick = atom({ plugin: 'session-lens', key: 'crewTick' } as const, 0)
 const crewBandSince = atom({ plugin: 'session-lens', key: 'crewBandSince' } as const, 0)
+const IDLE: LensCaptain = { isBusy: false, activity: 'other', detail: '', lastActiveAt: 0 }
+const captain = atom({ plugin: 'session-lens', key: 'captain' } as const, IDLE)
+
+/** The captain is the main thread: what it is doing now, or that it is waiting for you. */
+async function setCaptain($: EngineInterface, isBusy: boolean, activity: LensActivity, detail: string): Promise<void> {
+  const at = await $.clock.now()
+  await update($, captain, () => ({ isBusy, activity, detail, lastActiveAt: at }))
+}
 
 /** How often the pane is redrawn while a crab works, so one left without a call is drawn waiting. */
 const CREW_TICK_MS = 5000
@@ -79,7 +87,7 @@ async function safely(work: () => Promise<unknown>): Promise<void> {
 async function noteMoves($: EngineInterface): Promise<void> {
   const at = await $.clock.now()
   const v = viewOf(await read($, view))
-  const orders = listOrders(await read($, tools), await read($, skills), await read($, servers), v.sort, await read($, crew), v.crewSort)
+  const orders = listOrders(await read($, tools), await read($, skills), await read($, servers), v.sort, await read($, crew), at)
   await update($, moves, cur => movesAfter(cur, orders, at) ?? cur)
 }
 
@@ -253,25 +261,34 @@ export const register: Register = (on, options) => {
   // Each model request of a subagent: its crab is thinking.
   on('turn.step', async function* ($, e, next) {
     const agentId = e.agentId
-    if (agentId)
-      await safely(async () => {
-        const at = await $.clock.now()
-        await touchCrab($, agentId, () => ({ activity: 'think', detail: '', lastActiveAt: at }))
-      })
+    await safely(async () => {
+      if (!agentId) return setCaptain($, true, 'think', '')
+      const at = await $.clock.now()
+      await touchCrab($, agentId, () => ({ activity: 'think', detail: '', lastActiveAt: at }))
+    })
     return yield* next(e)
   })
 
-  // A subagent's run ends: its crab is done, failed or stopped, and flies back to base.
+  // A subagent's run ends: its crab is done, failed or stopped. One that is done walks past its flag and
+  // stands there a moment, then flies to the top of the crabs that reported back; the others fly there now.
+  // The main conversation's turn ending puts the captain off watch until your next prompt.
   on('turn.complete', async ($, e, next) => {
     const agentId = e.agentId
-    if (agentId)
-      await safely(async () => {
-        const at = await $.clock.now()
-        if (await touchCrab($, agentId, () => ({ status: outcomeOf(e.reason), endedAt: at, lastActiveAt: at }))) {
-          await noteMoves($)
-          settle($)
-        }
-      })
+    await safely(async () => {
+      if (!agentId) return setCaptain($, false, 'other', '')
+      const at = await $.clock.now()
+      const status = outcomeOf(e.reason)
+      if (!(await touchCrab($, agentId, () => ({ status, endedAt: at, lastActiveAt: at })))) return
+      await noteMoves($)
+      settle($)
+      if (status === 'done')
+        $.clock.after(LINGER_MS + 50, () => {
+          void safely(async () => {
+            await noteMoves($)
+            settle($)
+          })
+        })
+    })
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -285,7 +302,8 @@ export const register: Register = (on, options) => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  // The crew band above the prompt: the crabs out since the last prompt, and how far along they are.
+  // The crew band above the prompt: the crabs out since the last prompt, and how far along they are,
+  // drawn above whatever other mods put there.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!isBandOn || e.props.hasSurvey) return next(e)
     const since = await read($, crewBandSince)
@@ -293,7 +311,7 @@ export const register: Register = (on, options) => {
     const shown = all.filter(m => m.startedAt > since || (m.endedAt ?? -1) > since).sort((a, b) => a.startedAt - b.startedAt)
     if (!shown.length) return next(e)
     const ui = $.ui.resolve(e)
-    return bandView({
+    const ours = bandView({
       ui,
       isPictured: e.surface !== 'terminal' && 'Svg' in ui,
       columns: Math.max(40, e.props.bodyColumns || 100),
@@ -306,6 +324,15 @@ export const register: Register = (on, options) => {
           await update($, crewBandSince, () => at)
         }),
     })
+    // The band is shared by every mod: ours goes first, and what the others draw stays under it.
+    const { Box } = ui
+    const others = await next(e)
+    return (
+      <Box flexDirection="column">
+        {ours}
+        {others}
+      </Box>
+    )
   })
 
   // The person's own close is remembered, so the next session does not open the pane by itself.
@@ -336,6 +363,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     // A subagent's call: its crab is doing this now, and its own to-do list may move its progress.
     const agentId = e.agentId
+    if (!agentId) await safely(() => setCaptain($, true, activityOf(String(e.tool)), detailOf(e as unknown as Record<string, unknown>)))
     if (agentId)
       await safely(async () => {
         const tool = String(e.tool)
@@ -415,6 +443,7 @@ export const register: Register = (on, options) => {
       view: viewOf(await read($, view)),
       moves: await read($, moves),
       crew: await read($, crew),
+      captain: await read($, captain),
       // Read so the timer's tick redraws the pane; the drawing itself goes by the clock.
       now: Math.max(await $.clock.now(), await read($, crewTick)),
       act: {
@@ -425,8 +454,6 @@ export const register: Register = (on, options) => {
         // A new sort is a change of order: the rows fly to their new places (noted by setView).
         setSort: (sort: LensSort) => setView(v => (v.sort === sort ? {} : { sort })),
         setFilter: (filter: string) => setView(() => ({ filter })),
-        // A new crew order flies the crabs to their new places, as a new tool sort does.
-        setCrewSort: (crewSort: LensCrewSort) => setView(v => (v.crewSort === crewSort ? {} : { crewSort })),
       },
     })
   })

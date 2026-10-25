@@ -1,10 +1,10 @@
 // The crew: each subagent of the session is a crab, cast by its agent type. What it is doing, how far
 // it has got, and the order the pane lists the crew in. Pure functions: no `$` here.
 // Adapted from this repository's crab-crew mod.
-import type { LensActivity, LensCrab, LensCrewSort } from '../types'
+import type { LensActivity, LensCaptain, LensCrab } from '../types'
 
 /** What a crab wears: one small mark of its role, drawn on top of the crab. */
-export type Accessory = 'bandana' | 'cap' | 'tricorn' | 'glasses' | 'antenna' | 'halo' | 'toque' | 'deerstalker' | 'wizard' | 'goggles'
+export type Accessory = 'bandana' | 'cap' | 'tricorn' | 'glasses' | 'antenna' | 'halo' | 'toque' | 'deerstalker' | 'wizard' | 'goggles' | 'captain'
 
 export type Character = {
   key: string
@@ -29,6 +29,8 @@ export const CHARACTERS: Record<string, Character> = {
   sleuth: { key: 'sleuth', role: 'Sleuth', names: ['Inky', 'Clue', 'Sherl'], color: '#B07A45', accessory: 'deerstalker', pace: 18 },
   wizard: { key: 'wizard', role: 'Wizard', names: ['Merla', 'Coral', 'Zap'], color: '#7B6BD8', accessory: 'wizard', pace: 20 },
   diver: { key: 'diver', role: 'Diver', names: ['Bubbles', 'Finn', 'Marina'], color: '#2E8BC0', accessory: 'goggles', pace: 20 },
+  // The main thread: never cast for a subagent, always on the beach.
+  captain: { key: 'captain', role: 'Captain', names: ['Clawd'], color: '#4A6FB5', accessory: 'captain', pace: 20 },
 }
 
 const POOL = ['cook', 'sleuth', 'wizard', 'diver'] as const
@@ -210,19 +212,27 @@ export const BASE_MARK = '|'
 
 const byName = (a: LensCrab, b: LensCrab) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.startedAt - b.startedAt
 
-/** The crabs still working and the ones back, each in the chosen order. */
-export function crewLists(crew: Record<string, LensCrab>, sort: LensCrewSort): { working: LensCrab[]; base: LensCrab[] } {
+/** How long a crab that reached its flag stands there, past it, before it flies to the list of those back. */
+export const LINGER_MS = 3000
+
+/** Whether a crab is on the beach: still at work, or done and standing past its flag for a moment. */
+export const isOnBeach = (m: LensCrab, now: number): boolean => m.status === 'running' || (m.status === 'done' && now - (m.endedAt ?? 0) < LINGER_MS)
+
+/**
+ * The crabs on the beach, in the order they set out: each keeps its lane and its row while it works (the
+ * race is in how far each has walked), and the ones that reported back, the latest first.
+ */
+export function crewLists(crew: Record<string, LensCrab>, now: number): { working: LensCrab[]; base: LensCrab[] } {
   const all = Object.values(crew)
-  const cmp =
-    sort === 'name'
-      ? byName
-      : (a: LensCrab, b: LensCrab) => progressOf(b).value - progressOf(a).value || (b.endedAt ?? 0) - (a.endedAt ?? 0) || byName(a, b)
-  return { working: all.filter(m => m.status === 'running').sort(cmp), base: all.filter(m => m.status !== 'running').sort(cmp) }
+  // A stable sort: crabs that set out at the same moment keep the order they were spawned in.
+  const working = all.filter(m => isOnBeach(m, now)).sort((a, b) => a.startedAt - b.startedAt)
+  const base = all.filter(m => !isOnBeach(m, now)).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0) || byName(a, b))
+  return { working, base }
 }
 
 /** The crew's order as one list, the base mark between the two halves: what the flights compare. */
-export function crewOrder(crew: Record<string, LensCrab>, sort: LensCrewSort): string[] {
-  const { working, base } = crewLists(crew, sort)
+export function crewOrder(crew: Record<string, LensCrab>, now: number): string[] {
+  const { working, base } = crewLists(crew, now)
   return [...working.map(m => m.id), BASE_MARK, ...base.map(m => m.id)]
 }
 
@@ -326,4 +336,31 @@ export function quipOf(m: LensCrab, now: number): string {
   const list = QUIPS[m.character]?.[mood] ?? GENERIC[mood]
   const i = hash(m.id + mood) + (m.status === 'running' ? m.toolCalls : 0)
   return (list[i % list.length] ?? '').replace('{x}', clip(m.detail, 22) || 'the code')
+}
+
+// ---------- the captain ----------
+
+export const CAPTAIN_NAME = 'Captain Clawd'
+
+const CAPTAIN_LINES: Record<LensActivity, readonly string[]> = {
+  start: ['All hands!'],
+  think: ['Charting the course', 'Reading the stars'],
+  read: ['Reviewing {x}'],
+  search: ['Scanning the horizon: {x}'],
+  edit: ['Taking the wheel: {x}'],
+  shell: ['Full steam: {x}'],
+  web: ['Signalling ashore: {x}'],
+  delegate: ['Dispatching the crew', 'All hands to {x}'],
+  plan: ['Updating the log'],
+  other: ['At the helm'],
+}
+
+/** The captain asleep while Claude waits for you, thinking while it waits on the model, else at work. */
+export const captainPose = (c: LensCaptain): Pose => (!c.isBusy ? 'stopped' : c.activity === 'think' || c.activity === 'start' ? 'think' : 'work')
+
+/** What the captain says: what the main conversation is doing, or that it awaits your orders. */
+export function captainQuip(c: LensCaptain): string {
+  if (!c.isBusy) return 'Off watch, awaiting orders'
+  const list = CAPTAIN_LINES[c.activity]
+  return (list[hash(c.activity + c.detail) % list.length] ?? '').replace('{x}', clip(c.detail, 22) || 'the code')
 }

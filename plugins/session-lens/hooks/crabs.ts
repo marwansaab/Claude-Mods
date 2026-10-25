@@ -2,10 +2,10 @@
 // picture, so a crab can fly from one list to the other and to a new place in its own.
 // As in art.ts, nothing animates from the moment it is drawn: a one-shot (a cheer, a flight, a bar
 // growing) is pinned to when it happened, and a loop (legs, claws, blinks) keeps its phase across drawings.
-import type { LensCrab, LensMove } from '../types'
+import type { LensCaptain, LensCrab, LensMove } from '../types'
 import { ACCENT, STILL, attrs, bar, doc, esc, f1, fit, gradient, lighter, loopOf, once, onceOf, stagger, textWidth } from './art'
 import type { Anim, Drawn } from './art'
-import { BASE_MARK, actionOf, characterOf, duration, poseOf, progressLabel, progressOf, quipOf } from './crew'
+import { BASE_MARK, CAPTAIN_NAME, actionOf, captainPose, captainQuip, characterOf, duration, poseOf, progressLabel, progressOf, quipOf } from './crew'
 import type { Accessory, Character, Pose } from './crew'
 
 const INK = '#1f1e1c'
@@ -122,6 +122,8 @@ function accessory(kind: Accessory, line: string, now: number): string {
       return `<path d="M15,22.2 Q24,13.4 33,22.2 Z" fill="#8a6a45" stroke="#6b5233" stroke-width=".7"/><path d="M19,17.6 L29,17.6 M17.4,19.8 L30.6,19.8" stroke="#6b5233" stroke-width=".6"/><path d="M33,22 l3.4,1.4 M15,22 l-3.4,1.4" stroke="#6b5233" stroke-width="1.5" stroke-linecap="round"/>`
     case 'wizard':
       return `<ellipse cx="24" cy="21.4" rx="9" ry="1.9" fill="#4b3fa8"/><path d="M17.2,21.2 L24.5,5.6 L30.8,21.2 Z" fill="#5b4fc0"/>${star(25.2, 13.5, 1.8, '#ffd54a')}`
+    case 'captain':
+      return `<path d="M14.5,21.6 Q24,12.2 33.5,21.6 Z" fill="#1f2a44"/><path d="M13.5,21.6 h21" stroke="#111a2e" stroke-width="2.2" stroke-linecap="round"/><path d="M28.5,22 q5,.2 8.2,2.2" stroke="#111a2e" stroke-width="1.7" fill="none" stroke-linecap="round"/><circle cx="24" cy="17.4" r="1.9" fill="#e0b44a"/><path d="M15.5,19.6 Q24,15.2 32.5,19.6" stroke="#e0b44a" stroke-width=".7" fill="none"/>`
     case 'goggles':
       return `<path d="M13,11 L35,11" stroke="#1d6f8f" stroke-width="1.6"/><circle cx="18" cy="11" r="4.9" fill="#bfe9f7" fill-opacity=".35" stroke="#1d6f8f" stroke-width="1.8"/><circle cx="30" cy="11" r="4.9" fill="#bfe9f7" fill-opacity=".35" stroke="#1d6f8f" stroke-width="1.8"/>`
   }
@@ -195,41 +197,37 @@ export function crabSvg(m: Pick<LensCrab, 'character' | 'endedAt'>, pose: Pose, 
  */
 const ROW = { head: 26, lane: 38, sky: 24, shore: 10, work: 42, base: 50, gap: 8 } as const
 
-/** How tall the beach is for this many crabs at work: none, no beach. */
-const beachH = (n: number) => (n ? ROW.sky + n * ROW.lane + ROW.shore : 0)
+/** How tall the beach is for this many lanes: the captain's, and one per crab on it. */
+const beachH = (lanes: number) => ROW.sky + lanes * ROW.lane + ROW.shore
 
-/** A crew order's two halves: the crabs at work, and the ones back at base. */
+/** A crew order's two halves: the crabs on the beach, and the ones that reported back. */
 function splitOrder(order: readonly string[]): { work: string[]; base: string[] } {
   const cut = order.indexOf(BASE_MARK)
   return cut < 0 ? { work: [...order], base: [] } : { work: order.slice(0, cut), base: order.slice(cut + 1) }
 }
 
 type Layout = {
-  /** Each crab's row: under the beach for one at work, in the base list for one back. */
+  /** Each crab's row: under the beach for one on it, in the list of those back for one back. */
   y: Map<string, number>
-  /** Each working crab's lane on the beach, by its place in the order. */
+  /** Each crab's lane on the beach, under the captain's (lane 0). */
   lane: Map<string, number>
   working: Set<string>
   heads: { label: string; count: number; y: number }[]
-  beachY: number
   workEnd: number
   height: number
 }
 
-/** Where everything sits for a crew order, the base mark between its two halves. */
+/** Where everything sits for a crew order: the beach, its crabs' rows, then the crabs that reported back. */
 function layoutOf(order: readonly string[]): Layout {
   const { work, base } = splitOrder(order)
   const y = new Map<string, number>()
   const lane = new Map<string, number>()
   const heads: Layout['heads'] = []
-  let at = 0
-  let beachY = 0
+  work.forEach((id, i) => lane.set(id, i + 1))
+  let at = beachH(1 + work.length) + 6
   if (work.length) {
     heads.push({ label: 'AT WORK', count: work.length, y: at })
     at += ROW.head
-    beachY = at
-    work.forEach((id, i) => lane.set(id, i))
-    at += beachH(work.length) + 4
     for (const id of work) {
       y.set(id, at)
       at += ROW.work
@@ -238,14 +236,14 @@ function layoutOf(order: readonly string[]): Layout {
   const workEnd = at
   if (base.length) {
     if (work.length) at += ROW.gap
-    heads.push({ label: 'BACK AT BASE', count: base.length, y: at })
+    heads.push({ label: 'REPORTED BACK', count: base.length, y: at })
     at += ROW.head
     for (const id of base) {
       y.set(id, at)
       at += ROW.base
     }
   }
-  return { y, lane, working: new Set(work), heads, beachY, workEnd, height: at }
+  return { y, lane, working: new Set(work), heads, workEnd, height: at }
 }
 
 /** Seconds a crab takes to walk to where its progress has got to. */
@@ -274,15 +272,59 @@ function bubbleAt(x: number, y: number, text: string, isLeft: boolean, isThought
   )
 }
 
+/** The main thread on the beach: the captain, and how far along Claude's own to-do list is. */
+export type Skipper = { captain: LensCaptain; done: number; total: number; doneBefore: number; changedAt: number }
+
+/** Someone walking a lane: the captain or a crab. */
+type Walker = {
+  key: string
+  look: Pick<LensCrab, 'character' | 'endedAt'>
+  pose: Pose
+  /** How far along, 0 to 1, where it was before it last moved, and when that was. */
+  progress: number
+  before: number
+  movedAt: number
+  /** Done and standing past its flag, for a moment before it reports back. */
+  isPast: boolean
+  line: string
+  saidAt: number
+}
+
+const crabWalker = (m: LensCrab, now: number): Walker => ({
+  key: m.id,
+  look: m,
+  pose: poseOf(m, now),
+  progress: progressOf(m).value,
+  before: Math.min(1, m.progressBefore),
+  movedAt: m.progressAt,
+  isPast: m.status === 'done',
+  line: quipOf(m, now),
+  saidAt: m.lastActiveAt,
+})
+
+const captainWalker = (s: Skipper): Walker => ({
+  key: 'captain',
+  look: { character: 'captain' },
+  pose: captainPose(s.captain),
+  progress: s.total ? s.done / s.total : 0,
+  before: s.total ? s.doneBefore / s.total : 0,
+  movedAt: s.changedAt,
+  isPast: false,
+  line: captainQuip(s.captain),
+  saidAt: s.captain.lastActiveAt,
+})
+
 /**
- * The beach: one scene for the crew at work, a lane each. A crab walks its lane toward its flag as its
- * progress climbs, footprints behind it, with its line in a bubble beside it. A step is pinned to when
- * its progress moved; a lane that changes place glides there, and a new one fades in.
+ * The beach: one scene with a lane each, the captain's first. Each walks its lane toward its flag as its
+ * progress climbs (the captain's is Claude's own to-do list), footprints behind it, with its line in a
+ * bubble beside it. A crab that is done walks past its flag and stands there, cheering, until it reports
+ * back. A step is pinned to when the progress moved; a lane that changes place glides there, and a new
+ * one fades in.
  */
-function beachMarkup(w: number, working: LensCrab[], old: Layout | null, since: number, now: number): string {
-  const h = beachH(working.length)
-  const flagX = w - 16
-  const laneW = flagX - 46
+function beachMarkup(w: number, walkers: Walker[], old: Layout | null, since: number, now: number): string {
+  const h = beachH(walkers.length)
+  const flagX = w - 50
+  const laneW = flagX - 40
   const sky =
     `<defs><linearGradient id="bsky" x1="0" x2="0" y1="0" y2="1"><stop offset="0" class="sk1"/><stop offset="${f1(ROW.sky / h)}" class="sk2"/><stop offset="${f1((ROW.sky + 4) / h)}" class="sd1"/><stop offset="1" class="sd2"/></linearGradient>` +
     `<clipPath id="bclip"><rect x="0" y="0" width="${w}" height="${h}" rx="12"/></clipPath></defs>`
@@ -291,30 +333,29 @@ function beachMarkup(w: number, working: LensCrab[], old: Layout | null, since: 
     for (let x = -40; x < w + 40; x += 20) d += ` q5,${-a} 10,0 q5,${a} 10,0`
     return `<path${attrs(cls, loopOf('c-wave', period, now))} d="${d}" fill="none" stroke-width="2" stroke-linecap="round"/>`
   }
-  const lanes = working
+  const lanes = walkers
     .map((m, i) => {
-      const c = characterOf(m.character)
+      const c = characterOf(m.look.character)
       const top = ROW.sky + i * ROW.lane
-      const p = progressOf(m).value
-      const x = 4 + p * laneW
-      const fromX = 4 + Math.min(1, m.progressBefore) * laneW
-      const walkSince = (now - m.progressAt) / 1000
+      const x = m.isPast ? flagX + 8 : 4 + m.progress * laneW
+      const fromX = 4 + m.before * laneW
+      const walkSince = (now - m.movedAt) / 1000
       const id = `cw${i}`
       const walking =
-        walkSince < WALK && Math.abs(fromX - x) > 0.5
+        m.movedAt && walkSince < WALK && Math.abs(fromX - x) > 0.5
           ? `<style>@keyframes ${id}{from{transform:translateX(${f1(fromX - x)}px)}to{transform:none}}.${id}{animation:${id} ${WALK}s cubic-bezier(.3,.8,.3,1) ${(-walkSince).toFixed(3)}s both}</style>`
           : ''
       const prints: string[] = []
-      for (let fx = 8, k = 0; fx < x + 2; fx += 8, k++) prints.push(`<rect class="fp" x="${fx}" y="${top + 31 + (k % 2)}" width="3" height="1.6" rx=".8"/>`)
+      for (let fx = 8, k = 0; fx < x + 2; fx += 10, k++) prints.push(`<rect class="fp" x="${fx}" y="${top + 31 + (k % 2)}" width="3" height="1.6" rx=".8"/>`)
       const flag = `<rect class="pole" x="${flagX}" y="${top + 8}" width="1.6" height="26"/><path d="M${flagX + 1.6},${top + 8} l9,4.5 l-9,4.5 Z" fill="${c.color}"/>`
-      const pose = poseOf(m, now)
-      const crab = `<g transform="translate(${f1(x)} ${top + 2}) scale(.72)">${crabMarkup(m, pose, now, `bc${i}`)}</g>`
-      const line = quipOf(m, now)
+      const crab = `<g transform="translate(${f1(x)} ${top + 2}) scale(.72)">${crabMarkup(m.look, m.pose, now, `bc${i}`)}</g>`
       const roomRight = flagX - (x + 40)
-      const isLeft = roomRight < Math.min(140, textWidth(line, 10.5) + 30) && x > roomRight
-      const bubble = bubbleAt(isLeft ? x - 2 : x + 38, top + 6, line, isLeft, pose === 'think', isLeft ? x - 6 : roomRight, once('pop', m.lastActiveAt, now), now)
-      // A lane that changed place glides there with its crab; a new lane fades in.
-      const was = old?.lane.get(m.id)
+      // The bubble goes where the line fits: right of the crab, else left if there is more room there.
+      const need = textWidth(m.line, 10.5) + 30
+      const isLeft = m.isPast || (need > roomRight && x - 6 > roomRight)
+      const bubble = bubbleAt(isLeft ? x - 2 : x + 38, top + 6, m.line, isLeft, m.pose === 'think', isLeft ? x - 6 : roomRight, once('pop', m.saidAt, now), now)
+      // A lane that changed place glides there with its crab; a new lane fades in. The captain's stays first.
+      const was = i === 0 ? 0 : old?.lane.get(m.key)
       const glide = old && since < FLY ? (was === undefined ? 'new' : was !== i ? (was - i) * ROW.lane : 0) : 0
       const lid = `cl${i}`
       const laneStyle =
@@ -375,6 +416,8 @@ function baseRow(w: number, m: LensCrab, i: number, now: number): string {
   )
 }
 
+const IDLE_SKIPPER: Skipper = { captain: { isBusy: false, activity: 'other', detail: '', lastActiveAt: 0 }, done: 0, total: 0, doneBefore: 0, changedAt: 0 }
+
 const crabAlt = (m: LensCrab, now: number) => `${m.name} the ${characterOf(m.character).role}, ${m.status === 'running' ? `${progressLabel(m)}, ${actionOf(m, now)}` : m.status}`
 
 /**
@@ -385,7 +428,7 @@ const crabAlt = (m: LensCrab, now: number) => `${m.name} the ${characterOf(m.cha
  * crab with the news is lit as it lands and painted above the rest. Rows not in flight come in after
  * `enterAt` (the section opened).
  */
-export function crewSvg(w: number, working: LensCrab[], base: LensCrab[], move: LensMove | undefined, enterAt: number, now: number): Drawn {
+export function crewSvg(w: number, working: LensCrab[], base: LensCrab[], move: LensMove | undefined, enterAt: number, now: number, skipper: Skipper = IDLE_SKIPPER): Drawn {
   const order = [...working.map(m => m.id), BASE_MARK, ...base.map(m => m.id)]
   const lay = layoutOf(order)
   const since = move ? (now - move.at) / 1000 : Infinity
@@ -409,12 +452,8 @@ export function crewSvg(w: number, working: LensCrab[], base: LensCrab[], move: 
       )
     })
     .join('')
-  // The beach grows and shrinks with the crew at work; when it changes size it eases into place.
-  const beachGrow = old && since < FLY && old.beachY !== lay.beachY ? old.beachY - lay.beachY : 0
-  const beach = working.length
-    ? `${beachGrow ? `<defs><style>@keyframes cbeach{from{transform:translateY(${beachGrow}px)}to{transform:none}}.cbeach{animation:cbeach ${FLY}s cubic-bezier(.25,.8,.25,1) ${(-since).toFixed(3)}s both}</style></defs>` : ''}` +
-      `<g transform="translate(0 ${lay.beachY})"><g${attrs(beachGrow ? 'cbeach' : '', once('fade', enterAt, now))}>${beachMarkup(w, working, old, since, now)}</g></g>`
-    : ''
+  // The beach, always there: the captain's lane, and one per crab on it.
+  const beach = `<g${attrs('', once('fade', enterAt, now))}>${beachMarkup(w, [captainWalker(skipper), ...working.map(m => crabWalker(m, now))], old, since, now)}</g>`
   // Which crabs overtook another in their own list: compared among the crabs in that list both before
   // and after, so a crab that only closes a gap left by one that went is not lit as news.
   const oldParts = move ? splitOrder(move.from) : { work: [], base: [] }
@@ -465,8 +504,9 @@ export function crewSvg(w: number, working: LensCrab[], base: LensCrab[], move: 
   })
   const height = Math.max(1, lay.height)
   const alt = [
+    `${CAPTAIN_NAME}: ${captainQuip(skipper.captain)}`,
     working.length ? `At work: ${working.map(m => crabAlt(m, now)).join('; ')}` : '',
-    base.length ? `Back at base: ${base.map(m => crabAlt(m, now)).join('; ')}` : '',
+    base.length ? `Reported back: ${base.map(m => crabAlt(m, now)).join('; ')}` : '',
   ]
     .filter(Boolean)
     .join('. ')

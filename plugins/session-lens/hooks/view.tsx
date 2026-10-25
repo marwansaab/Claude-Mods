@@ -2,10 +2,10 @@
 // The desktop draws each row as an animated SVG; the terminal draws the same rows in text.
 import type { Elements, RenderElement } from 'claude-code'
 
-import type { LensCrab, LensCrewSort, LensMove, LensPlan, LensSection, LensSkill, LensSort, LensTool, LensView } from '../types'
+import type { LensCaptain, LensCrab, LensMove, LensPlan, LensSection, LensSkill, LensSort, LensTool, LensView } from '../types'
 import { ACCENT, barShare, groupTileSvg, groupTotalSvg, hueOf, skillListSvg, stepSvg, todoProgressSvg, toolListSvg } from './art'
 import { bandSvg, crewSvg } from './crabs'
-import { characterOf, crewLists, crewSummary, duration, progressLabel, progressOf, quipOf } from './crew'
+import { CAPTAIN_NAME, captainQuip, characterOf, crewLists, crewSummary, duration, isOnBeach, progressLabel, progressOf, quipOf } from './crew'
 import { doneOf, isGroupOpen, plural, skillList, toolGroups, toolRows } from './track'
 import type { ToolGroup, ToolRow } from './track'
 
@@ -19,7 +19,6 @@ export type Actions = {
   setGrouped: (isGrouped: boolean) => void
   setSort: (sort: LensSort) => void
   setFilter: (text: string) => void
-  setCrewSort: (sort: LensCrewSort) => void
 }
 
 export type Ctx = {
@@ -37,6 +36,8 @@ export type Ctx = {
   moves: Record<string, LensMove>
   /** This session's subagents, each played by a crab. */
   crew: Record<string, LensCrab>
+  /** The main thread, played by the captain. */
+  captain: LensCaptain
   /** When this drawing is made: each animation is drawn as it stands at this moment. */
   now: number
   act: Actions
@@ -146,10 +147,6 @@ function todoSection(ctx: Ctx): RenderElement {
 
 // ---------- crew ----------
 
-const CREW_SORTS: { sort: LensCrewSort; label: string }[] = [
-  { sort: 'progress', label: 'Progress' },
-  { sort: 'name', label: 'A–Z' },
-]
 const OUTCOME: Record<LensCrab['status'], { glyph: string; color: string }> = {
   running: { glyph: '●', color: ACCENT },
   done: { glyph: '✓', color: GOOD },
@@ -157,7 +154,11 @@ const OUTCOME: Record<LensCrab['status'], { glyph: string; color: string }> = {
   stopped: { glyph: '■', color: '#8a8984' },
 }
 
-/** One crab in the terminal: its mark, name and role, its progress or how its run ended, then its line and task. */
+/**
+ * One crab in the terminal: its mark, name (in its colour) and role, its progress or how its run ended,
+ * then its task and its line. The right-hand column keeps its width; a narrow terminal cuts the name and
+ * the line, not the bar or the task.
+ */
 function crabLine(ctx: Ctx, m: LensCrab): RenderElement {
   const { Box, Text } = ctx.ui
   const c = characterOf(m.character)
@@ -166,63 +167,75 @@ function crabLine(ctx: Ctx, m: LensCrab): RenderElement {
   return (
     <Box key={`crab-${m.id}`} flexDirection="column">
       <Box flexDirection="row" justifyContent="space-between" gap={1}>
-        <Text wrap="truncate-end">
-          <Text color={o.color}>{`${o.glyph} `}</Text>
-          <Text bold>{m.name}</Text>
-          <Text dimColor>{` the ${c.role}`}</Text>
-        </Text>
-        {m.status === 'running' ? (
-          <Text>
-            <Text color={c.color}>{bar.on}</Text>
-            <Text dimColor>{bar.off}</Text>
-            <Text bold>{` ${progressLabel(m)}`}</Text>
+        <Box flexShrink={1} flexGrow={1} overflow="hidden">
+          <Text wrap="truncate-end">
+            <Text color={o.color}>{`${o.glyph} `}</Text>
+            <Text bold color={c.color}>
+              {m.name}
+            </Text>
+            <Text dimColor>{` the ${c.role}`}</Text>
           </Text>
-        ) : (
-          <Text dimColor>{`${m.status} · ${duration((m.endedAt ?? ctx.now) - m.startedAt)}`}</Text>
-        )}
+        </Box>
+        <Box flexShrink={0}>
+          {isOnBeach(m, ctx.now) ? (
+            <Text>
+              <Text color={c.color}>{bar.on}</Text>
+              <Text dimColor>{bar.off}</Text>
+              <Text bold>{` ${progressLabel(m)}`}</Text>
+            </Text>
+          ) : (
+            <Text dimColor>{`${m.status} · ${duration((m.endedAt ?? ctx.now) - m.startedAt)}`}</Text>
+          )}
+        </Box>
       </Box>
       <Box paddingLeft={2}>
         <Text dimColor wrap="truncate-end">
-          <Text italic>{`“${quipOf(m, ctx.now)}”`}</Text>
-          {` · ${m.description}`}
+          {m.description}
+          <Text italic>{`  “${quipOf(m, ctx.now)}”`}</Text>
         </Text>
       </Box>
     </Box>
   )
 }
 
-/** The crew: who is out at work and who is back at base, in the order chosen. */
+/**
+ * The crew: the beach, where the captain always is, with the crabs at work; their rows; then the crabs
+ * that reported back, the latest first.
+ */
 function crewSection(ctx: Ctx): RenderElement {
-  const { Box, Text, Button } = ctx.ui
-  const { working, base } = crewLists(ctx.crew, ctx.view.crewSort)
-  const right = working.length + base.length ? crewSummary(ctx.crew) : null
+  const { Box, Text } = ctx.ui
+  const { working, base } = crewLists(ctx.crew, ctx.now)
+  const right = working.length + base.length ? crewSummary(ctx.crew) : ctx.captain.isBusy ? 'Captain at the helm' : 'Captain off watch'
   return section(ctx, 'crew', 'Crew', right, () => {
-    if (!working.length && !base.length) return []
-    const sorts = (
-      <Box key="crew-sorts" flexDirection="row" gap={1} alignItems="center">
-        {CREW_SORTS.map(s => (
-          <Button
-            key={`crew-sort-${s.sort}`}
-            plain
-            dimColor={ctx.view.crewSort !== s.sort}
-            label={`${ctx.view.crewSort === s.sort ? '● ' : ''}${s.label}`}
-            onPress={() => ctx.act.setCrewSort(s.sort)}
-          />
-        ))}
-      </Box>
-    )
     if (ctx.isPictured) {
       const w = rowPixels(ctx.columns)
-      return [sorts, picture(ctx, 'crew-list', crewSvg(w, working, base, ctx.moves.crew, sectionAt(ctx, 'crew'), ctx.now), w)!]
+      const steps = ctx.plan.steps
+      const skipper = {
+        captain: ctx.captain,
+        done: doneOf(steps),
+        total: steps.length,
+        doneBefore: ctx.plan.doneBefore,
+        changedAt: ctx.plan.updatedAt,
+      }
+      return [picture(ctx, 'crew-list', crewSvg(w, working, base, ctx.moves.crew, sectionAt(ctx, 'crew'), ctx.now, skipper), w)!]
     }
+    const captainLine = (
+      <Text key="crew-captain" wrap="truncate-end">
+        <Text color={ACCENT}>{ctx.captain.isBusy ? '(\\/)(°,,°)(\\/) ' : '(\\/)(-,,-)(\\/) '}</Text>
+        <Text bold>{CAPTAIN_NAME}</Text>
+        <Text dimColor>{` · ${captainQuip(ctx.captain)}`}</Text>
+      </Text>
+    )
     const group = (key: string, label: string, list: LensCrab[]) =>
       list.length ? (
         <Box key={key} flexDirection="column">
           <Text dimColor bold>{`${label} · ${list.length}`}</Text>
-          {list.map(m => crabLine(ctx, m))}
+          <Box flexDirection="column" paddingLeft={1}>
+            {list.map(m => crabLine(ctx, m))}
+          </Box>
         </Box>
       ) : null
-    return [sorts, group('crew-work', 'At work', working), group('crew-base', 'Back at base', base)].filter((x): x is RenderElement => x !== null)
+    return [captainLine, group('crew-work', 'At work', working), group('crew-base', 'Reported back', base)].filter((x): x is RenderElement => x !== null)
   })
 }
 
@@ -434,10 +447,11 @@ export function bandView(b: BandCtx): RenderElement {
   const working = b.shown.filter(m => m.status === 'running')
   const mean = b.shown.reduce((s, m) => s + (m.status === 'running' ? progressOf(m).value : 1), 0) / Math.max(1, b.shown.length)
   const bar = cells(mean, Math.max(6, Math.min(20, b.columns - 60)))
-  const who = working.length ? `${working.map(m => m.name).join(', ')} at work` : 'All back at base'
+  // Short, so the bar keeps its room: the first crab out, and how many more.
+  const who = working.length ? `${working[0]!.name}${working.length > 1 ? ` +${working.length - 1}` : ''} at work` : 'All back at base'
   return (
     <Box flexDirection="row" gap={1}>
-      <Text color={ACCENT}>{working.length ? '(\/)(°,,°)(\/)' : '\(^,,^)/'}</Text>
+      <Text color={ACCENT}>{working.length > 1 ? '(°,,°)' : working.length ? '(\\/)(°,,°)(\\/)' : '\\(^,,^)/'}</Text>
       <Text wrap="truncate-end">
         {who}
         <Text dimColor>{` · ${crewSummary(Object.fromEntries(b.shown.map(m => [m.id, m])))}`}</Text>

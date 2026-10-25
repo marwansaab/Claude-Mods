@@ -52,10 +52,18 @@ export type LensMove = { from: string[]; to: string[]; at: number }
 
 export type LensSection = 'todo' | 'crew' | 'skills' | 'tools'
 export type LensSort = 'count' | 'name' | 'recent'
-export type LensCrewSort = 'progress' | 'name'
 
 /** What a crab was last seen doing, from its last call or model request. */
 export type LensActivity = 'start' | 'think' | 'read' | 'search' | 'edit' | 'shell' | 'web' | 'delegate' | 'plan' | 'other'
+
+/** The main thread, played by Captain Clawd: what it is doing, from its own calls and model requests. */
+export type LensCaptain = {
+  /** Claude is working on a turn; false while it waits for you. */
+  isBusy: boolean
+  activity: LensActivity
+  detail: string
+  lastActiveAt: number
+}
 
 /** One subagent of this session, played by a crab. */
 export type LensCrab = {
@@ -98,8 +106,6 @@ export type LensLayout = {
   /** Tools grouped by their MCP server or connector, or one flat list. */
   isGrouped: boolean
   sort: LensSort
-  /** The crew's order: by progress, or by name. */
-  crewSort: LensCrewSort
 }
 
 /** How the person has the pane laid out: the kept layout, and what lasts only for the session. */
@@ -128,6 +134,8 @@ declare module 'claude-code' {
       moves: Record<string, LensMove>
       /** This session's subagents, by id. */
       crew: Record<string, LensCrab>
+      /** The main thread, always on the beach. */
+      captain: LensCaptain
       /** Moved on a timer while a crab works, so a crab left waiting is drawn waiting. */
       crewTick: number
       /** The band above the prompt shows crabs that set out or came back after this moment. */
