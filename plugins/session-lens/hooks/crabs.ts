@@ -5,7 +5,7 @@
 import type { LensCaptain, LensCrab, LensMove } from '../types'
 import { ACCENT, STILL, attrs, bar, doc, esc, f1, fit, gradient, lighter, loopOf, once, onceOf, stagger, textWidth } from './art'
 import type { Anim, Drawn } from './art'
-import { BASE_MARK, CAPTAIN_NAME, actionOf, captainPose, captainQuip, characterOf, duration, poseOf, progressLabel, progressOf, quipOf } from './crew'
+import { BASE_MARK, CAPTAIN_NAME, actionOf, captainPose, captainQuip, characterOf, crabMeta, duration, poseOf, progressLabel, progressOf, quipOf } from './crew'
 import type { Accessory, Character, LegendEntry, Pose } from './crew'
 
 const INK = '#1f1e1c'
@@ -210,7 +210,7 @@ export function crabSvg(m: Pick<LensCrab, 'character' | 'endedAt'>, pose: Pose, 
  * Heights: a lane of the beach; the beach's sky and waves above its lanes, and the sand below them;
  * a working crab's row; a crab's row among those reported back.
  */
-const ROW = { lane: 38, sky: 24, shore: 10, work: 42, base: 50 } as const
+const ROW = { lane: 38, sky: 24, shore: 10, work: 42, base: 60 } as const
 
 /** How tall the beach is for this many lanes: the captain's, and one per crab on it. */
 const beachH = (lanes: number) => ROW.sky + lanes * ROW.lane + ROW.shore
@@ -352,18 +352,36 @@ function beachMarkup(w: number, walkers: Walker[], oldLanes: Map<string, number>
   )
 }
 
-/** A crab at work, under the beach: its name and role, its task, its progress, its calls and time. */
+/** A name, its role in its colour, and the task after it: the first line of a crab's row. */
+function crabTitle(x: number, y: number, m: LensCrab, maxW: number): string {
+  const c = characterOf(m.character)
+  const name = fit(m.name, 140, 13)
+  const taskW = maxW - textWidth(`${name} the ${c.role} · `, 13)
+  const task = taskW > 30 && m.description ? `<tspan class="dim" font-size="12"> · ${esc(fit(m.description, taskW, 12))}</tspan>` : ''
+  return `<text x="${x}" y="${y}" font-size="13"><tspan class="ink" font-weight="650">${esc(name)}</tspan><tspan fill="${c.color}" font-weight="650"> the ${esc(c.role)}</tspan>${task}</text>`
+}
+
+/** A crab's details in the room there is: its action is cut first, so its calls and tokens show. */
+function metaText(m: LensCrab, now: number, maxW: number, size: number): string {
+  if (m.status !== 'running') return fit(crabMeta(m, now), maxW, size)
+  const room = maxW - textWidth(`${crabMeta(m, now, '')} · `, size)
+  return fit(crabMeta(m, now, fit(actionOf(m, now), Math.max(40, room), size)), maxW, size)
+}
+
+/**
+ * A crab at work, under the beach: its name, role and task, and how long it has been out; under them its
+ * model, what it is doing, its calls and tokens, and its progress.
+ */
 function workRow(w: number, m: LensCrab, now: number): string {
   const c = characterOf(m.character)
   const label = progressLabel(m)
-  const meta = `${m.toolCalls} call${m.toolCalls === 1 ? '' : 's'} · ${duration(now - m.startedAt)}`
-  const metaW = textWidth(meta, 10.5) + 8
+  const time = duration(now - m.startedAt)
   return (
     `<circle cx="6" cy="13" r="4" fill="${c.color}"/>` +
-    `<text x="16" y="17" font-size="13"><tspan class="ink" font-weight="650">${esc(fit(m.name, 140, 13))}</tspan><tspan class="dim"> the ${esc(c.role)}</tspan></text>` +
-    `<text x="${w - 2}" y="17" font-size="12" font-weight="700" fill="${c.color}" text-anchor="end">${esc(label)}</text>` +
-    `<text class="dim" x="16" y="33" font-size="11.5">${esc(fit(m.description, w - 16 - metaW - 6, 11.5))}</text>` +
-    `<text class="faint" x="${w - 2}" y="33" font-size="10.5" text-anchor="end">${esc(meta)}</text>`
+    crabTitle(16, 17, m, w - 16 - textWidth(time, 10.5) - 10) +
+    `<text class="faint" x="${w - 2}" y="17" font-size="10.5" text-anchor="end">${esc(time)}</text>` +
+    `<text class="dim" x="16" y="34" font-size="11">${esc(metaText(m, now, w - 16 - textWidth(label, 12) - 12, 11))}</text>` +
+    `<text x="${w - 2}" y="34" font-size="12" font-weight="700" fill="${c.color}" text-anchor="end">${esc(label)}</text>`
   )
 }
 
@@ -373,27 +391,27 @@ const CHIP: Record<Exclude<LensCrab['status'], 'running'>, { label: string; cls:
   stopped: { label: 'stopped', cls: 's' },
 }
 
-/** A crab back at base: a smaller crab, its name and role, how its run ended, its last line and its task. */
+/**
+ * A crab back at base: a smaller crab, its name, role and task, and how its run ended; under them how long
+ * it took, its model, calls and tokens; then its last line.
+ */
 function baseRow(w: number, m: LensCrab, i: number, now: number): string {
-  const c = characterOf(m.character)
   const x0 = 54
   const chip = CHIP[m.status === 'running' ? 'done' : m.status]
   const chipW = textWidth(chip.label, 10.5) + 14
-  const took = duration((m.endedAt ?? now) - m.startedAt)
-  const line = `“${quipOf(m, now)}”`
-  const lineW = textWidth(line, 11) + 8
   return (
-    `<g transform="translate(9 6) scale(.78)">${crabMarkup(m, poseOf(m, now), now, `cg${i}`)}</g>` +
-    `<text x="${x0}" y="19" font-size="12.5"><tspan class="ink" font-weight="650">${esc(fit(m.name, 130, 12.5))}</tspan><tspan class="dim"> the ${esc(c.role)}</tspan></text>` +
+    `<g transform="translate(9 10) scale(.78)">${crabMarkup(m, poseOf(m, now), now, `cg${i}`)}</g>` +
+    crabTitle(x0, 19, m, w - x0 - chipW - 10) +
     `<g${attrs('', once('pop', m.endedAt ?? 0, now, 0.5))}><rect class="${chip.cls}chip" x="${f1(w - 2 - chipW)}" y="7" width="${f1(chipW)}" height="17" rx="8.5"/><text class="${chip.cls}chipt" x="${f1(w - 2 - chipW / 2)}" y="19" font-size="10.5" font-weight="650" text-anchor="middle">${chip.label}</text></g>` +
-    `<text class="faint" x="${f1(w - 8 - chipW)}" y="19" font-size="10.5" text-anchor="end">${esc(took)}</text>` +
-    `<text x="${x0}" y="37" font-size="11"><tspan class="dim" font-style="italic">${esc(line)}</tspan><tspan class="faint"> · ${esc(fit(m.description, Math.max(30, w - x0 - lineW - 8), 11))}</tspan></text>`
+    `<text class="dim" x="${x0}" y="36" font-size="11">${esc(metaText(m, now, w - x0 - 4, 11))}</text>` +
+    `<text class="faint" x="${x0}" y="52" font-size="11" font-style="italic">${esc(fit(`“${quipOf(m, now)}”`, w - x0 - 4, 11))}</text>`
   )
 }
 
 const IDLE_SKIPPER: Skipper = { captain: { isBusy: false, activity: 'other', detail: '', lastActiveAt: 0 }, done: 0, total: 0, doneBefore: 0, changedAt: 0 }
 
-const crabAlt = (m: LensCrab, now: number) => `${m.name} the ${characterOf(m.character).role}, ${m.status === 'running' ? `${progressLabel(m)}, ${actionOf(m, now)}` : m.status}`
+const crabAlt = (m: LensCrab, now: number) =>
+  `${m.name} the ${characterOf(m.character).role}, ${m.status === 'running' ? `${progressLabel(m)}, ` : `${m.status}, `}${crabMeta(m, now)}`
 
 /** For a moment after the crew's order last changed: how long ago that was, and the order before it. */
 function lastMove(move: LensMove | undefined, now: number): { since: number; before: { work: string[]; base: string[] } } | null {

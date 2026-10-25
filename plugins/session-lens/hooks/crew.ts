@@ -201,12 +201,68 @@ export function actionOf(m: LensCrab, now: number): string {
   return `${VERB[m.activity]}${m.detail ? ` ${m.detail}` : ''}${waited}`
 }
 
-/** A span of time, coarse: the pane is drawn now and then, not every second. */
+/** A span of time as a clock reads it: `0:31`, `2:20`, `1:04:09`. */
 export function duration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60)
-  return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const ss = String(s % 60).padStart(2, '0')
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
+}
+
+/** A model id as people say it: `claude-haiku-4-5` is Haiku 4.5. */
+export function modelName(id: string | undefined): string {
+  if (!id) return ''
+  const [, family = '', major = '', minor] = /(fable|mythos|opus|sonnet|haiku)-(\d+)(?:-(\d{1,2})(?!\d))?/i.exec(id) ?? []
+  if (!family) return id.replace(/^claude-/, '').replace(/\[.*\]$/, '')
+  return `${family.charAt(0).toUpperCase()}${family.slice(1).toLowerCase()} ${major}${minor ? `.${minor}` : ''}`
+}
+
+/** A token count, short: `940`, `61k`, `1.2M`. */
+export const tokensLabel = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`)
+
+/** What one request used, counted as crab-crew counts it: input, output and cache reads and writes. */
+export const usageTokens = (u: { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }): number =>
+  (u.input_tokens || 0) + (u.output_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0)
+
+const calls = (n: number) => `${n} call${n === 1 ? '' : 's'}`
+
+/**
+ * A crab's details, crab-crew's line: its model, what it is doing (at work) or how long it took (back),
+ * its calls, any that failed, and its tokens. A drawing short of room passes the action cut to fit.
+ */
+export function crabMeta(m: LensCrab, now: number, action = m.status === 'running' ? actionOf(m, now) : ''): string {
+  return [
+    m.status === 'running' ? '' : duration((m.endedAt ?? now) - m.startedAt),
+    modelName(m.model),
+    action,
+    calls(m.toolCalls),
+    m.errors ? `${m.errors} failed` : '',
+    m.tokens ? `${tokensLabel(m.tokens)} tok` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/**
+ * The totals of one list of the race, for beside its title: how many, how the runs back ended when not
+ * all well, their calls and tokens, and the time from the first to set out to now (at work) or to the
+ * last back.
+ */
+export function listTotals(kind: 'work' | 'base', list: readonly LensCrab[], now: number): string[] {
+  if (!list.length) return []
+  const count = (status: LensCrab['status']) => list.filter(m => m.status === status).length
+  const tokens = list.reduce((n, m) => n + (m.tokens ?? 0), 0)
+  const start = Math.min(...list.map(m => m.startedAt))
+  const end = kind === 'work' ? now : Math.max(...list.map(m => m.endedAt ?? now))
+  return [
+    String(list.length),
+    kind === 'base' && count('failed') ? `${count('failed')} overboard` : '',
+    kind === 'base' && count('stopped') ? `${count('stopped')} called back` : '',
+    calls(list.reduce((n, m) => n + m.toolCalls, 0)),
+    tokens ? `${tokensLabel(tokens)} tok` : '',
+    duration(end - start),
+  ].filter(Boolean)
 }
 
 // ---------- the crew's order ----------

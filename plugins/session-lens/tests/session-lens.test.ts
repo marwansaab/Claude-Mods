@@ -4,7 +4,7 @@ import type { On, RenderElement } from 'claude-code'
 
 import { skillListSvg, stepSvg, toolListSvg } from '../hooks/art'
 import { bandSvg, beachSvg, crewListSvg, legendSvg } from '../hooks/crabs'
-import { BASE_MARK, characterKeyOf, crewNameOf, crewOrder, crewSummary, legendOf, outcomeOf, poseOf, progressOf, quipOf, withChange } from '../hooks/crew'
+import { BASE_MARK, characterKeyOf, crabMeta, crewNameOf, crewOrder, crewSummary, duration, legendOf, listTotals, modelName, outcomeOf, poseOf, progressOf, quipOf, tokensLabel, withChange } from '../hooks/crew'
 import { DEFAULT_LAYOUT, DESKTOP_PLAN, DESKTOP_WRAP_UP, EMPTY_PLAN, countTool, groupLabel, listOrders, markAlways, movesAfter, parseLayout, planAfter, skillOfPath, stampSteps, toolGroups, toolRows } from '../hooks/track'
 import type { LensCrab, LensPlan, LensTool } from '../types'
 
@@ -558,7 +558,7 @@ describe('the crew', () => {
     expect(work).toContain('@keyframes cf0{0%{transform:translateY(42px)}')
     expect(work).not.toContain('.cf0h{')
     // Barnacle comes in from just under the list's title, fading in, lit, cheering.
-    expect(back).toContain('@keyframes cf0{0%{transform:translateY(-50px);opacity:0}')
+    expect(back).toContain('@keyframes cf0{0%{transform:translateY(-60px);opacity:0}')
     expect(back).toContain('.cf0h{')
     expect(back).toContain('class="c-hop"')
     // On the beach his lane is gone; Pip's glides up into it.
@@ -640,6 +640,35 @@ describe('the crew', () => {
     expect(svg).toContain('class="c-hop"')
   })
 
+  test('crab-crew’s details: the model by name, tokens short, time as a clock, and a crab’s line', async () => {
+    expect(modelName('claude-haiku-4-5')).toBe('Haiku 4.5')
+    expect(modelName('claude-opus-5-5[1m]')).toBe('Opus 5.5')
+    expect(modelName('claude-sonnet-5')).toBe('Sonnet 5')
+    expect(modelName(undefined)).toBe('')
+    expect([tokensLabel(940), tokensLabel(61_400), tokensLabel(1_240_000)]).toEqual(['940', '61k', '1.2M'])
+    expect([duration(31_000), duration(140_000), duration(3_849_000)]).toEqual(['0:31', '2:20', '1:04:09'])
+    const pip = crabOf('a', 'Pip', 'scout', { model: 'claude-haiku-4-5', toolCalls: 4, tokens: 61_000, activity: 'search', detail: 'loadConfig', lastActiveAt: 4_000 })
+    expect(crabMeta(pip, 5_000)).toBe('Haiku 4.5 · searching loadConfig · 4 calls · 61k tok')
+    // Left without a call for a while: how long it has waited.
+    expect(crabMeta(pip, 35_000)).toBe('Haiku 4.5 · searching loadConfig · waiting 0:31 · 4 calls · 61k tok')
+    const wren = crabOf('b', 'Wren', 'scout', { status: 'done', startedAt: 1_000, endedAt: 89_000, model: 'claude-haiku-4-5', toolCalls: 11, tokens: 140_000 })
+    expect(crabMeta(wren, 100_000)).toBe('1:28 · Haiku 4.5 · 11 calls · 140k tok')
+  })
+
+  test('the race’s totals beside each list’s title: how many, how the runs ended, calls, tokens and time', async () => {
+    const working = [
+      crabOf('a', 'Pip', 'scout', { startedAt: 1_000, toolCalls: 4, tokens: 61_000 }),
+      crabOf('b', 'Ada', 'navigator', { startedAt: 3_000, toolCalls: 9, tokens: 212_000 }),
+    ]
+    expect(listTotals('work', working, 141_000)).toEqual(['2', '13 calls', '273k tok', '2:20'])
+    const base = [
+      crabOf('c', 'Wren', 'scout', { status: 'done', startedAt: 2_000, endedAt: 90_000, toolCalls: 11, tokens: 140_000 }),
+      crabOf('d', 'Zap', 'wizard', { status: 'failed', startedAt: 4_000, endedAt: 74_000, toolCalls: 6, tokens: 77_000 }),
+    ]
+    expect(listTotals('base', base, 141_000)).toEqual(['2', '1 overboard', '17 calls', '217k tok', '1:28'])
+    expect(listTotals('base', [], 141_000)).toEqual([])
+  })
+
   test('a crab scurries for 3 s after each call, at twice its pace, then walks', async () => {
     const pip = crabOf('a', 'Pip', 'scout', { lastActiveAt: 5_000 })
     expect(poseOf(pip, 6_000)).toBe('scurry')
@@ -678,7 +707,7 @@ describe('the crew', () => {
     const pip = crabOf('a', 'Pip', 'scout')
     const d = crewListSvg(360, 'work', [pip], undefined, 5_000, 5_100)
     expect(d.svg).toMatch(/class="in" style="animation-delay:-0\.100s;"/)
-    expect(d.alt).toBe('At work: Pip the Scout, ≈25%, reading config.ts')
+    expect(d.alt).toBe('At work: Pip the Scout, ≈25%, reading config.ts · 4 calls')
     expect(beachSvg(360, [pip], undefined, 0, 5_100).alt).toBe(`Captain Clawd: Off watch, awaiting orders. Pip: ${quipOf(pip, 5_100)}`)
   })
 })
@@ -821,7 +850,7 @@ describe('the session’s own events', () => {
       expect(await shows(ui, /3 back/)).toBe(true)
       expect(await shows(ui, /at work/i)).toBe(false)
       if (surface === 'terminal') {
-        expect(await shows(ui, /done · 1m 5s/)).toBe(true)
+        expect(await shows(ui, /done · 1:05/)).toBe(true)
         expect(await shows(ui, /failed · /)).toBe(true)
         expect(await shows(ui, /stopped · /)).toBe(true)
       } else {
@@ -959,6 +988,34 @@ describe('the session’s own events', () => {
     ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
     expect(await shows(ui, /Captain Clawd: Off watch/)).toBe(true)
     await ui.unmount()
+  })
+
+  test('each request of a subagent adds its tokens to its crab, and names its model', async ($, on) => {
+    mock.clock(on, { now: 10_000 })
+    mock.store(on)
+    on('tool.call', () => ({ result: {} }))
+    on('turn.step', async function* (_, e) {
+      const usage = { model: 'claude-sonnet-5-5', input_tokens: 1_000, output_tokens: 500, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 2_000 }
+      return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], usage } as never
+    })
+    const spawn = spawner($, on)
+    await spawn('t1', 'Explore', 'Find the config loader')
+    for (let i = 1; i <= 2; i++) {
+      const stream = $.turn.step({ turnId: 'turn-1', index: i, model: 'claude-haiku-4-5', messageCount: 3, agentId: 'agent-t1' } as never)
+      for await (const _ of stream) {
+        // Nothing streams beneath the test.
+      }
+      await stream.result
+    }
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE, surface })
+      // The model the requests ran on, and the two requests' tokens added up.
+      expect(await shows(ui, /Sonnet 5\.5/)).toBe(true)
+      expect(await shows(ui, /87k tok/)).toBe(true)
+      // The race's totals beside the list's title, a · between each.
+      expect((await ui.find({ key: 'sec-crewWork' }))?.text).toMatch(/At work · 1 · 0 calls · 87k tok · 0:00/)
+      await ui.unmount()
+    }
   })
 
   test('a subagent’s model request sets its crab thinking; the main conversation’s makes no crab', async ($, on) => {
