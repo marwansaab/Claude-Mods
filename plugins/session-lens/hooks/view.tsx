@@ -4,8 +4,8 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import type { LensCrab, LensCrewSort, LensMove, LensPlan, LensSection, LensSkill, LensSort, LensTool, LensView } from '../types'
 import { ACCENT, barShare, groupTileSvg, groupTotalSvg, hueOf, skillListSvg, stepSvg, todoProgressSvg, toolListSvg } from './art'
-import { crewSvg } from './crabs'
-import { actionOf, characterOf, crewLists, crewSummary, duration, progressLabel, progressOf } from './crew'
+import { bandSvg, crewSvg } from './crabs'
+import { characterOf, crewLists, crewSummary, duration, progressLabel, progressOf, quipOf } from './crew'
 import { doneOf, isGroupOpen, plural, skillList, toolGroups, toolRows } from './track'
 import type { ToolGroup, ToolRow } from './track'
 
@@ -157,7 +157,7 @@ const OUTCOME: Record<LensCrab['status'], { glyph: string; color: string }> = {
   stopped: { glyph: '■', color: '#8a8984' },
 }
 
-/** One crab in the terminal: its mark, name and role, then progress and doing, or how its run ended. */
+/** One crab in the terminal: its mark, name and role, its progress or how its run ended, then its line and task. */
 function crabLine(ctx: Ctx, m: LensCrab): RenderElement {
   const { Box, Text } = ctx.ui
   const c = characterOf(m.character)
@@ -183,7 +183,8 @@ function crabLine(ctx: Ctx, m: LensCrab): RenderElement {
       </Box>
       <Box paddingLeft={2}>
         <Text dimColor wrap="truncate-end">
-          {m.status === 'running' ? actionOf(m, ctx.now) : m.description}
+          <Text italic>{`“${quipOf(m, ctx.now)}”`}</Text>
+          {` · ${m.description}`}
         </Text>
       </Box>
     </Box>
@@ -395,6 +396,59 @@ export function paneView(ctx: Ctx): RenderElement {
       {crewSection(ctx)}
       {skillsSection(ctx)}
       {toolsSection(ctx)}
+    </Box>
+  )
+}
+
+// ---------- the crew band above the prompt ----------
+
+export type BandCtx = {
+  ui: UI
+  isPictured: boolean
+  columns: number
+  /** The crabs the band shows: those that set out or came back since the last prompt. */
+  shown: LensCrab[]
+  now: number
+  /** Opens the lens at its crew; hides the band until the next crew sets out. */
+  openCrew: () => void
+  dismiss: () => void
+}
+
+/** The band: the crew's crabs, who is at work, and how far along they are, with the way to the lens. */
+export function bandView(b: BandCtx): RenderElement {
+  const { Box, Text, Button } = b.ui
+  const open = <Button key="lens-crew-open" plain label={`Crew ×${b.shown.length}`} onPress={b.openCrew} />
+  const dismiss = <Button key="lens-crew-dismiss" plain role="dismiss" label="✕" onPress={b.dismiss} />
+  if (b.isPictured && 'Svg' in b.ui) {
+    const { Svg } = b.ui
+    const w = Math.max(220, Math.min(1400, b.columns * 8 - 140))
+    const d = bandSvg(w, b.shown, b.now)
+    return (
+      <Box flexDirection="row" alignItems="center" gap={1}>
+        <Svg key="lens-band" source={d.svg} alt={d.alt} width={w} height={d.height} />
+        {open}
+        {dismiss}
+      </Box>
+    )
+  }
+  const working = b.shown.filter(m => m.status === 'running')
+  const mean = b.shown.reduce((s, m) => s + (m.status === 'running' ? progressOf(m).value : 1), 0) / Math.max(1, b.shown.length)
+  const bar = cells(mean, Math.max(6, Math.min(20, b.columns - 60)))
+  const who = working.length ? `${working.map(m => m.name).join(', ')} at work` : 'All back at base'
+  return (
+    <Box flexDirection="row" gap={1}>
+      <Text color={ACCENT}>{working.length ? '(\/)(°,,°)(\/)' : '\(^,,^)/'}</Text>
+      <Text wrap="truncate-end">
+        {who}
+        <Text dimColor>{` · ${crewSummary(Object.fromEntries(b.shown.map(m => [m.id, m])))}`}</Text>
+      </Text>
+      <Text>
+        <Text color={working.length ? ACCENT : GOOD}>{bar.on}</Text>
+        <Text dimColor>{bar.off}</Text>
+        <Text bold>{` ${working.length ? '≈' : ''}${Math.round(mean * 100)}%`}</Text>
+      </Text>
+      {open}
+      {dismiss}
     </Box>
   )
 }

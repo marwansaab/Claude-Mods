@@ -19,7 +19,7 @@ import {
   splitTool,
   viewOf,
 } from './track'
-import { paneView } from './view'
+import { bandView, paneView } from './view'
 
 const PLUGIN = 'session-lens'
 const PANE = PLUGIN
@@ -40,6 +40,7 @@ const isLayoutLoaded = atom({ plugin: 'session-lens', key: 'isLayoutLoaded' } as
 const moves = atom({ plugin: 'session-lens', key: 'moves' } as const, {})
 const crew = atom({ plugin: 'session-lens', key: 'crew' } as const, {} as Record<string, LensCrab>)
 const crewTick = atom({ plugin: 'session-lens', key: 'crewTick' } as const, 0)
+const crewBandSince = atom({ plugin: 'session-lens', key: 'crewBandSince' } as const, 0)
 
 /** How often the pane is redrawn while a crab works, so one left without a call is drawn waiting. */
 const CREW_TICK_MS = 5000
@@ -176,8 +177,19 @@ async function startOver($: EngineInterface): Promise<void> {
   await readContext($)
 }
 
+/** Opens the lens at its crew: the pane, with the Crew section unfolded if it was folded. */
+async function openCrew($: EngineInterface): Promise<void> {
+  const at = await $.clock.now()
+  await update($, view, v => {
+    const full = viewOf(v)
+    return full.folded.includes('crew') ? { ...full, folded: full.folded.filter(s => s !== 'crew'), toggledAt: { ...full.toggledAt, crew: at } } : full
+  })
+  await openPane($)
+}
+
 export const register: Register = (on, options) => {
   const isAutoOpenOn = options.autoOpen !== false
+  const isBandOn = options.crewBand !== false
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -262,6 +274,39 @@ export const register: Register = (on, options) => {
       })
     return next(e)
   }).catch(($, e, next) => next(e))
+
+  // A new prompt with no one out: the band clears, and comes back with the next crew to set out.
+  on('prompt.submit', async ($, e, next) => {
+    await safely(async () => {
+      if (Object.values(await read($, crew)).some(m => m.status === 'running')) return
+      const at = await $.clock.now()
+      await update($, crewBandSince, () => at)
+    })
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // The crew band above the prompt: the crabs out since the last prompt, and how far along they are.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (!isBandOn || e.props.hasSurvey) return next(e)
+    const since = await read($, crewBandSince)
+    const all = Object.values(await read($, crew))
+    const shown = all.filter(m => m.startedAt > since || (m.endedAt ?? -1) > since).sort((a, b) => a.startedAt - b.startedAt)
+    if (!shown.length) return next(e)
+    const ui = $.ui.resolve(e)
+    return bandView({
+      ui,
+      isPictured: e.surface !== 'terminal' && 'Svg' in ui,
+      columns: Math.max(40, e.props.bodyColumns || 100),
+      shown,
+      now: Math.max(await $.clock.now(), await read($, crewTick)),
+      openCrew: () => void safely(() => openCrew($)),
+      dismiss: () =>
+        void safely(async () => {
+          const at = await $.clock.now()
+          await update($, crewBandSince, () => at)
+        }),
+    })
+  })
 
   // The person's own close is remembered, so the next session does not open the pane by itself.
   on('ui.close', async ($, e, next) => {

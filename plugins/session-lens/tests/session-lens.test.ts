@@ -1,10 +1,10 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
-import type { On } from 'claude-code'
+import type { On, RenderElement } from 'claude-code'
 
 import { skillListSvg, stepSvg, toolListSvg } from '../hooks/art'
-import { crewSvg } from '../hooks/crabs'
-import { BASE_MARK, characterKeyOf, crewNameOf, crewOrder, crewSummary, outcomeOf, progressOf, withChange } from '../hooks/crew'
+import { bandSvg, crewSvg } from '../hooks/crabs'
+import { BASE_MARK, characterKeyOf, crewNameOf, crewOrder, crewSummary, outcomeOf, progressOf, quipOf, withChange } from '../hooks/crew'
 import { DEFAULT_LAYOUT, DESKTOP_PLAN, DESKTOP_WRAP_UP, EMPTY_PLAN, countTool, groupLabel, listOrders, markAlways, movesAfter, parseLayout, planAfter, skillOfPath, stampSteps, toolGroups, toolRows } from '../hooks/track'
 import type { LensCrab, LensPlan, LensTool } from '../types'
 
@@ -548,8 +548,8 @@ describe('the crew', () => {
     const base = [crabOf('c', 'Barnacle', 'deckhand', { status: 'done', endedAt: 5_000 })]
     // Barnacle was first at work; now Pip is alone at work and Barnacle back at base.
     const svg = crewSvg(360, working, base, { from: ['c', 'a', BASE_MARK], to: ['a', BASE_MARK, 'c'], at: 5_000 }, 0, 5_100).svg
-    // Pip (row 0) rises one working row, into the gap.
-    expect(svg).toContain('@keyframes cf0{0%{transform:translateY(72px)}')
+    // Pip (row 0) rises into the gap: Barnacle's row is gone and the beach is a lane shorter.
+    expect(svg).toContain('@keyframes cf0{0%{transform:translateY(80px)}')
     expect(svg).not.toContain('.cf0h{')
     // Barnacle (row 1) comes down from the top of the working list: it is the news.
     expect(svg).toMatch(/@keyframes cf1\{0%\{transform:translateY\(-\d+px\)\}/)
@@ -563,8 +563,50 @@ describe('the crew', () => {
   test('a new crab flies in at the foot of the working list, fading in', async () => {
     const working = [crabOf('a', 'Pip', 'scout', { toolCalls: 9 }), crabOf('b', 'Ada', 'navigator', { toolCalls: 0 })]
     const svg = crewSvg(360, working, [], { from: ['a', BASE_MARK], to: ['a', 'b', BASE_MARK], at: 5_000 }, 0, 5_100).svg
-    expect(svg).toContain('@keyframes cf1{0%{transform:translateY(72px);opacity:0}')
+    // Ada's row comes up from below the last working row; her lane fades in on the beach.
+    expect(svg).toContain('@keyframes cf1{0%{transform:translateY(42px);opacity:0}')
     expect(svg).toContain('.cf1h{')
+    expect(svg).toContain('.cl1{animation:sl-fade')
+  })
+
+  test('on the beach, a crab walks from where its progress was, says its line, and thinks in a dashed bubble', async () => {
+    // Pip's last call, just now, moved his progress on: he is a moment into his walk.
+    const pip = crabOf('a', 'Pip', 'scout', { toolCalls: 5, progressBefore: 0.1, progressAt: 5_000, lastActiveAt: 5_000 })
+    const ada = crabOf('b', 'Ada', 'navigator', { activity: 'think', lastActiveAt: 5_000 })
+    const svg = crewSvg(360, [pip, ada], [], undefined, 0, 5_200).svg
+    expect(svg).toMatch(/@keyframes cw0\{from\{transform:translateX\(-\d+(\.\d)?px\)\}/)
+    expect(svg).toContain('-0.200s both}')
+    // One of the Scout's own lines about what he is reading, the same one on every drawing.
+    expect(quipOf(pip, 5_200)).toMatch(/config\.ts/)
+    expect(svg).toContain(quipOf(pip, 5_200))
+    expect(svg).toContain('stroke-dasharray="3 2"')
+    // Long after, the walk is over and the beach is still but for its loops.
+    expect(crewSvg(360, [pip, ada], [], undefined, 0, 60_000).svg).not.toContain('@keyframes cw')
+  })
+
+  test('no drawing gives an element the same attribute twice, which would break the whole picture', async () => {
+    // A picture whose XML does not parse is drawn as a broken image: one doubled `class` hides a whole list.
+    const doubled = (svg: string) => [...svg.matchAll(/<[a-zA-Z]+((?:\s+[a-zA-Z:-]+="[^"]*")*)\s*\/?>/g)].some(m => {
+      const names = [...(m[1] ?? '').matchAll(/\s([a-zA-Z:-]+)="/g)].map(n => n[1])
+      return new Set(names).size !== names.length
+    })
+    const now = 5_200
+    const working = [
+      crabOf('a', 'Pip', 'scout', { progressBefore: 0.1, progressAt: 5_000, lastActiveAt: 5_000 }),
+      crabOf('b', 'Ada', 'navigator', { activity: 'think', lastActiveAt: 5_000 }),
+      crabOf('w', 'Rusty', 'deckhand', { lastActiveAt: 1 }),
+    ]
+    const base = [
+      crabOf('c', 'Barnacle', 'deckhand', { status: 'done', endedAt: 5_000 }),
+      crabOf('d', 'Merla', 'wizard', { status: 'failed', endedAt: 4_000 }),
+      crabOf('e', 'Cookie', 'cook', { status: 'stopped', endedAt: 4_000 }),
+    ]
+    const move = { from: ['c', 'b', 'a', BASE_MARK, 'd'], to: ['a', 'b', 'w', BASE_MARK, 'c', 'd', 'e'], at: 5_100 }
+    expect(doubled(crewSvg(360, working, base, move, 5_000, now).svg)).toBe(false)
+    expect(doubled(crewSvg(360, working, base, undefined, 0, 60_000).svg)).toBe(false)
+    expect(doubled(bandSvg(600, [...working, ...base], now).svg)).toBe(false)
+    expect(doubled(stepSvg(300, { text: 'x', status: 'in_progress', changedAt: 5_000 }, 0, 5_000, now).svg)).toBe(false)
+    expect(doubled(toolListSvg(300, [toolRow('Read', 5_000)], true, { from: ['Bash'], to: ['Read', 'Bash'], at: 5_000 }, true, () => 5_000, now).svg)).toBe(false)
   })
 
   test('a crab in its section opens comes in once, and says what it shows', async () => {
@@ -600,7 +642,8 @@ describe('the crew in the pane', () => {
       expect(await shows(ui, /2 at work/)).toBe(true)
       expect(await shows(ui, /Ada the Navigator/)).toBe(true)
       expect(await shows(ui, /Pip the Scout/)).toBe(true)
-      expect(await shows(ui, /reading f5\.ts/)).toBe(true)
+      // The desktop's alt says what the crab is doing; the terminal gives its line, in character, about the same file.
+      expect(await shows(ui, /f5\.ts/)).toBe(true)
       expect(await ui.find({ key: 'crew-sort-progress' })).toBeDefined()
       await ui.unmount()
     }
@@ -747,7 +790,8 @@ describe('the session’s own events', () => {
     await spawn('t1', 'Explore', 'Find the config loader')
     await $.tool.call({ tool: 'Read', file_path: '/src/config.ts', agentId: 'agent-t1' } as never)
 
-    let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    // The desktop's alt says plainly what the crab is doing.
+    let ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
     expect(await shows(ui, /reading config\.ts/)).toBe(true)
     await ui.unmount()
 
@@ -761,10 +805,118 @@ describe('the session’s own events', () => {
       await stream.result
     }
 
-    ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
     expect(await shows(ui, /thinking/)).toBe(true)
     expect(await shows(ui, /reading config\.ts/)).toBe(false)
     expect(await shows(ui, /1 at work/)).toBe(true)
+    await ui.unmount()
+  })
+})
+
+// ---------- the crew band above the prompt ----------
+
+const BAND = {
+  plugin: 'session-lens',
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isWorking: true, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 5 }, view: {} },
+} as const
+
+describe('the crew band', () => {
+  // What the engine draws above the prompt when the mod passes: a stand-in to tell the two apart.
+  const engineBand = (on: On) =>
+    on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+      const { Text } = $.ui.resolve(e)
+      return h(Text, {}, 'engine band') as RenderElement
+    })
+
+  test('a crew out shows its band; with no crew, the band is the engine’s', async ($, on) => {
+    mock.clock(on, { now: 10_000 })
+    mock.store(on)
+    engineBand(on)
+    const spawn = spawner($, on)
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...BAND, surface })
+      expect(await ui.find({ text: 'engine band' })).toBeDefined()
+      await ui.unmount()
+    }
+    await spawn('t1', 'Explore', 'Find the config loader')
+    await spawn('t2', 'Plan', 'Plan the migration')
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...BAND, surface })
+      expect(await shows(ui, /Pip, Ada at work/)).toBe(true)
+      expect((await ui.find({ key: 'lens-crew-open' }))?.text).toMatch(/Crew ×2/)
+      await ui.unmount()
+    }
+  })
+
+  test('Crew opens the lens; ✕ hides the band until the next crew sets out', async ($, on) => {
+    const clock = mock.clock(on, { now: 10_000 })
+    mock.store(on)
+    engineBand(on)
+    const opened: string[] = []
+    on('ui.open', (_, e) => {
+      opened.push(e.id)
+      return { value: { isPlaced: true } }
+    })
+    const spawn = spawner($, on)
+    await spawn('t1', 'Explore', 'Find the config loader')
+    const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    await desk.press({ key: 'lens-crew-open' })
+    expect(opened).toContain('session-lens')
+    await desk.press({ key: 'lens-crew-dismiss' })
+    expect(await desk.find({ key: 'lens-crew-open' })).toBeUndefined()
+    expect(await desk.find({ text: 'engine band' })).toBeDefined()
+    await desk.unmount()
+    // The next crab to set out, later, brings the band back with only the new crew in it.
+    await clock.advance(2_000)
+    await $.agent.spawn({
+      tool_use_id: 't2',
+      prompt: 'Plan',
+      description: 'Plan the migration',
+      subagentType: 'Plan',
+      provider: { plugin: 'engine', tier: 'core' },
+      parentModel: 'claude-opus-5-5',
+      background: false,
+      fork: false,
+    })
+    const term = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect((await term.find({ key: 'lens-crew-open' }))?.text).toMatch(/Crew ×1/)
+    await term.unmount()
+  })
+
+  test('a new prompt with everyone back clears the band; one sent while a crab works keeps it', async ($, on) => {
+    const clock = mock.clock(on, { now: 10_000 })
+    mock.store(on)
+    engineBand(on)
+    on('prompt.submit', (_, e) => ({ text: e.text }))
+    on('turn.complete', () => ({ text: '' }))
+    const spawn = spawner($, on)
+    await spawn('t1', 'Explore', 'Find the config loader')
+    await clock.advance(1_000)
+    await $.prompt.submit({ text: 'How is it going?' } as never)
+    let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ key: 'lens-crew-open' })).toBeDefined()
+    await ui.unmount()
+    await $.turn.complete({ reason: 'answer', text: '', agentId: 'agent-t1' } as never)
+    ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await shows(ui, /All back at base/)).toBe(true)
+    await ui.unmount()
+    await clock.advance(1_000)
+    await $.prompt.submit({ text: 'Thanks' } as never)
+    ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ text: 'engine band' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('the crewBand setting turns the band off', { options: { crewBand: false } }, async ($, on) => {
+    mock.clock(on, { now: 10_000 })
+    mock.store(on)
+    engineBand(on)
+    const spawn = spawner($, on)
+    await spawn('t1', 'Explore', 'Find the config loader')
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect(await ui.find({ text: 'engine band' })).toBeDefined()
+    expect(await ui.find({ key: 'lens-crew-open' })).toBeUndefined()
     await ui.unmount()
   })
 })

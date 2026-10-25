@@ -130,6 +130,8 @@ declare module 'claude-code' {
       crew: Record<string, LensCrab>
       /** Moved on a timer while a crab works, so a crab left waiting is drawn waiting. */
       crewTick: number
+      /** The band above the prompt shows crabs that set out or came back after this moment. */
+      crewBandSince: number
       /** True once a resumed session's earlier calls were counted, so a reload does not count them twice. */
       isSeeded: boolean
       /** True once the kept layout was read into `view` this session, so a reload does not read it over the person's changes. */

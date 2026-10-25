@@ -3,9 +3,9 @@
 // As in art.ts, nothing animates from the moment it is drawn: a one-shot (a cheer, a flight, a bar
 // growing) is pinned to when it happened, and a loop (legs, claws, blinks) keeps its phase across drawings.
 import type { LensCrab, LensMove } from '../types'
-import { STILL, attrs, bar, doc, esc, f1, fit, gradient, lighter, loopOf, once, onceOf, stagger, textWidth } from './art'
+import { ACCENT, STILL, attrs, bar, doc, esc, f1, fit, gradient, lighter, loopOf, once, onceOf, stagger, textWidth } from './art'
 import type { Anim, Drawn } from './art'
-import { BASE_MARK, actionOf, characterOf, duration, poseOf, progressLabel, progressOf } from './crew'
+import { BASE_MARK, actionOf, characterOf, duration, poseOf, progressLabel, progressOf, quipOf } from './crew'
 import type { Accessory, Character, Pose } from './crew'
 
 const INK = '#1f1e1c'
@@ -24,7 +24,7 @@ const CRAB_STYLE = `<style>
 @keyframes c-swirl{to{transform:rotate(360deg)}}
 @keyframes c-zz{0%{transform:translate(0,0);opacity:0}25%{opacity:1}100%{transform:translate(7px,-11px);opacity:0}}
 @keyframes c-glow{0%,100%{opacity:.55}50%{opacity:1}}
-@keyframes c-lift{0%{transform:translateY(0)}50%{transform:translateY(-3px)}100%{transform:translateY(0)}}
+@keyframes c-wave{from{transform:translateX(-20px)}to{transform:none}}
 .c-legA,.c-legB{transform-box:fill-box;transform-origin:right top;animation:c-legA .45s ease-in-out infinite}
 .c-legB{animation-name:c-legB}
 .c-snip{transform-box:fill-box;transform-origin:left bottom;animation:c-snip .9s ease-in-out infinite}
@@ -38,9 +38,10 @@ const CRAB_STYLE = `<style>
 .c-swirl{transform-box:fill-box;transform-origin:center;animation:c-swirl 1.6s linear infinite}
 .c-zz{animation:c-zz 2.4s ease-out infinite}
 .c-glow{animation:c-glow 1.4s ease-in-out infinite}
-.c-lift{animation:c-lift .8s ease-in-out both}
+.c-wave{animation:c-wave 4s linear infinite}
+.sk1{stop-color:#dff0fa}.sk2{stop-color:#eef6f6}.sd1{stop-color:#f5e9cf}.sd2{stop-color:#ecdcb6}.wv1{stroke:#bfe0f0}.wv2{stroke:#d6ecf5}.fp{fill:#c9b48a;opacity:.8}.pole{fill:#8a8984}.bub{fill:#fff;stroke:#d8d5cc;stroke-width:.8}.bubt{fill:#1f1e1c}.bubd{fill:#6b6a66}
 .gchip{fill:#e6f4ea}.gchipt{fill:#1f7a45}.rchip{fill:#fdecec}.rchipt{fill:#c0392b}.schip{fill:#efeeea}.schipt{fill:#6b6a66}
-@media (prefers-color-scheme: dark){.gchip{fill:#1c3326}.gchipt{fill:#6fd39b}.rchip{fill:#3a1f1d}.rchipt{fill:#ff8a80}.schip{fill:#2e2d2a}.schipt{fill:#a8a7a2}}
+@media (prefers-color-scheme: dark){.sk1{stop-color:#1b2a33}.sk2{stop-color:#1f2b2e}.sd1{stop-color:#3a3226}.sd2{stop-color:#332b1f}.wv1{stroke:#2c4c5c}.wv2{stroke:#284451}.fp{fill:#6b5a3c}.bub{fill:#2e2d2a;stroke:#4a4843}.bubt{fill:#ecebe8}.bubd{fill:#a8a7a2}.gchip{fill:#1c3326}.gchipt{fill:#6fd39b}.rchip{fill:#3a1f1d}.rchipt{fill:#ff8a80}.schip{fill:#2e2d2a}.schipt{fill:#a8a7a2}}
 </style>`
 
 /** Seconds of the one-shots above, as CRAB_STYLE sets them. */
@@ -188,7 +189,14 @@ export function crabSvg(m: Pick<LensCrab, 'character' | 'endedAt'>, pose: Pose, 
 
 // ---------- the crew as one picture ----------
 
-const ROW = { head: 26, work: 72, base: 48, gap: 8 } as const
+/**
+ * Heights: a list header; a lane of the beach; the beach's sky and waves above its lanes, and the sand
+ * below them; a working crab's text row under the beach; a crab's row back at base.
+ */
+const ROW = { head: 26, lane: 38, sky: 24, shore: 10, work: 42, base: 50, gap: 8 } as const
+
+/** How tall the beach is for this many crabs at work: none, no beach. */
+const beachH = (n: number) => (n ? ROW.sky + n * ROW.lane + ROW.shore : 0)
 
 /** A crew order's two halves: the crabs at work, and the ones back at base. */
 function splitOrder(order: readonly string[]): { work: string[]; base: string[] } {
@@ -196,17 +204,32 @@ function splitOrder(order: readonly string[]): { work: string[]; base: string[] 
   return cut < 0 ? { work: [...order], base: [] } : { work: order.slice(0, cut), base: order.slice(cut + 1) }
 }
 
-type Layout = { y: Map<string, number>; working: Set<string>; heads: { label: string; count: number; y: number }[]; workEnd: number; height: number }
+type Layout = {
+  /** Each crab's row: under the beach for one at work, in the base list for one back. */
+  y: Map<string, number>
+  /** Each working crab's lane on the beach, by its place in the order. */
+  lane: Map<string, number>
+  working: Set<string>
+  heads: { label: string; count: number; y: number }[]
+  beachY: number
+  workEnd: number
+  height: number
+}
 
-/** Where each crab's row sits for a crew order, the base mark between its two halves. */
+/** Where everything sits for a crew order, the base mark between its two halves. */
 function layoutOf(order: readonly string[]): Layout {
   const { work, base } = splitOrder(order)
   const y = new Map<string, number>()
+  const lane = new Map<string, number>()
   const heads: Layout['heads'] = []
   let at = 0
+  let beachY = 0
   if (work.length) {
     heads.push({ label: 'AT WORK', count: work.length, y: at })
     at += ROW.head
+    beachY = at
+    work.forEach((id, i) => lane.set(id, i))
+    at += beachH(work.length) + 4
     for (const id of work) {
       y.set(id, at)
       at += ROW.work
@@ -222,33 +245,109 @@ function layoutOf(order: readonly string[]): Layout {
       at += ROW.base
     }
   }
-  return { y, working: new Set(work), heads, workEnd, height: at }
+  return { y, lane, working: new Set(work), heads, beachY, workEnd, height: at }
 }
 
-/** A crab at work: the crab, its name and role, its task, what it is doing, and its progress. */
-function workRow(w: number, m: LensCrab, i: number, now: number): string {
+/** Seconds a crab takes to walk to where its progress has got to. */
+const WALK = 1.1
+
+/** A speech bubble beside a crab, or a dashed thought bubble with dots that blink in turn. */
+function bubbleAt(x: number, y: number, text: string, isLeft: boolean, isThought: boolean, maxW: number, pop: Anim, now: number): string {
+  const size = 10.5
+  const dotsW = isThought ? 15 : 0
+  const shown = fit(text, Math.max(30, maxW - 14 - dotsW), size)
+  const bw = textWidth(shown, size) + 14 + dotsW
+  const bx = isLeft ? x - bw : x
+  const tail = isThought
+    ? `<circle class="bub" cx="${f1(isLeft ? bx + bw + 3 : bx - 3)}" cy="${y + 12}" r="1.8"/>`
+    : `<path class="bub" d="M${f1(isLeft ? bx + bw - 1 : bx + 1)},${y + 6} L${f1(isLeft ? bx + bw + 6 : bx - 6)},${y + 11} L${f1(isLeft ? bx + bw - 1 : bx + 1)},${y + 13} Z"/>`
+  const dots = isThought
+    ? [0, 1, 2].map(i => `<circle${attrs('bubd', loopOf('c-dot', P.dot, now - i * 250))} cx="${f1(bx + bw - dotsW + i * 4.5 + 1)}" cy="${y + 9}" r="1.3"/>`).join('')
+    : ''
+  return (
+    `<g${attrs('', pop)}>` +
+    `<rect class="bub" x="${f1(bx)}" y="${y}" width="${f1(bw)}" height="18" rx="9"${isThought ? ' stroke-dasharray="3 2"' : ''}/>` +
+    tail +
+    `<text class="bubt" x="${f1(bx + 7)}" y="${y + 12.6}" font-size="${size}"${isThought ? ' font-style="italic"' : ''}>${esc(shown)}</text>` +
+    dots +
+    `</g>`
+  )
+}
+
+/**
+ * The beach: one scene for the crew at work, a lane each. A crab walks its lane toward its flag as its
+ * progress climbs, footprints behind it, with its line in a bubble beside it. A step is pinned to when
+ * its progress moved; a lane that changes place glides there, and a new one fades in.
+ */
+function beachMarkup(w: number, working: LensCrab[], old: Layout | null, since: number, now: number): string {
+  const h = beachH(working.length)
+  const flagX = w - 16
+  const laneW = flagX - 46
+  const sky =
+    `<defs><linearGradient id="bsky" x1="0" x2="0" y1="0" y2="1"><stop offset="0" class="sk1"/><stop offset="${f1(ROW.sky / h)}" class="sk2"/><stop offset="${f1((ROW.sky + 4) / h)}" class="sd1"/><stop offset="1" class="sd2"/></linearGradient>` +
+    `<clipPath id="bclip"><rect x="0" y="0" width="${w}" height="${h}" rx="12"/></clipPath></defs>`
+  const wave = (y: number, cls: string, period: number, a: number) => {
+    let d = `M-40,${y}`
+    for (let x = -40; x < w + 40; x += 20) d += ` q5,${-a} 10,0 q5,${a} 10,0`
+    return `<path${attrs(cls, loopOf('c-wave', period, now))} d="${d}" fill="none" stroke-width="2" stroke-linecap="round"/>`
+  }
+  const lanes = working
+    .map((m, i) => {
+      const c = characterOf(m.character)
+      const top = ROW.sky + i * ROW.lane
+      const p = progressOf(m).value
+      const x = 4 + p * laneW
+      const fromX = 4 + Math.min(1, m.progressBefore) * laneW
+      const walkSince = (now - m.progressAt) / 1000
+      const id = `cw${i}`
+      const walking =
+        walkSince < WALK && Math.abs(fromX - x) > 0.5
+          ? `<style>@keyframes ${id}{from{transform:translateX(${f1(fromX - x)}px)}to{transform:none}}.${id}{animation:${id} ${WALK}s cubic-bezier(.3,.8,.3,1) ${(-walkSince).toFixed(3)}s both}</style>`
+          : ''
+      const prints: string[] = []
+      for (let fx = 8, k = 0; fx < x + 2; fx += 8, k++) prints.push(`<rect class="fp" x="${fx}" y="${top + 31 + (k % 2)}" width="3" height="1.6" rx=".8"/>`)
+      const flag = `<rect class="pole" x="${flagX}" y="${top + 8}" width="1.6" height="26"/><path d="M${flagX + 1.6},${top + 8} l9,4.5 l-9,4.5 Z" fill="${c.color}"/>`
+      const pose = poseOf(m, now)
+      const crab = `<g transform="translate(${f1(x)} ${top + 2}) scale(.72)">${crabMarkup(m, pose, now, `bc${i}`)}</g>`
+      const line = quipOf(m, now)
+      const roomRight = flagX - (x + 40)
+      const isLeft = roomRight < Math.min(140, textWidth(line, 10.5) + 30) && x > roomRight
+      const bubble = bubbleAt(isLeft ? x - 2 : x + 38, top + 6, line, isLeft, pose === 'think', isLeft ? x - 6 : roomRight, once('pop', m.lastActiveAt, now), now)
+      // A lane that changed place glides there with its crab; a new lane fades in.
+      const was = old?.lane.get(m.id)
+      const glide = old && since < FLY ? (was === undefined ? 'new' : was !== i ? (was - i) * ROW.lane : 0) : 0
+      const lid = `cl${i}`
+      const laneStyle =
+        glide === 'new'
+          ? `<style>.${lid}{animation:sl-fade ${FLY}s ease ${(-since).toFixed(3)}s both}</style>`
+          : glide
+            ? `<style>@keyframes ${lid}{from{transform:translateY(${glide}px)}to{transform:none}}.${lid}{animation:${lid} ${FLY}s cubic-bezier(.25,.8,.25,1) ${(-since).toFixed(3)}s both}</style>`
+            : ''
+      return `${walking}${laneStyle}<g${laneStyle ? ` class="${lid}"` : ''}>${prints.join('')}${flag}<g${walking ? ` class="${id}"` : ''}>${crab}</g>${bubble}</g>`
+    })
+    .join('')
+  return (
+    sky +
+    `<g clip-path="url(#bclip)"><rect x="0" y="0" width="${w}" height="${h}" fill="url(#bsky)"/>` +
+    wave(ROW.sky - 3, 'wv1', 4, 2.4) +
+    wave(ROW.sky + 1, 'wv2', 6, 1.8) +
+    lanes +
+    `</g>`
+  )
+}
+
+/** A crab at work, under the beach: its name and role, its task, its progress, its calls and time. */
+function workRow(w: number, m: LensCrab, now: number): string {
   const c = characterOf(m.character)
-  const x0 = 60
-  const p = progressOf(m)
   const label = progressLabel(m)
-  const labelW = textWidth(label, 12) + 4
   const meta = `${m.toolCalls} call${m.toolCalls === 1 ? '' : 's'} · ${duration(now - m.startedAt)}`
   const metaW = textWidth(meta, 10.5) + 8
-  const title = `<text x="${x0}" y="18" font-size="13"><tspan class="ink" font-weight="650">${esc(fit(m.name, 140, 13))}</tspan><tspan class="dim"> the ${esc(c.role)}</tspan></text>`
-  const pct = `<text x="${w - 2}" y="18" font-size="12" font-weight="700" fill="${c.color}" text-anchor="end">${esc(label)}</text>`
-  const task = `<text class="dim" x="${x0}" y="34" font-size="11.5">${esc(fit(m.description, w - x0 - metaW - 6, 11.5))}</text>`
-  const metaText = `<text class="faint" x="${w - 2}" y="34" font-size="10.5" text-anchor="end">${esc(meta)}</text>`
-  const action = `<circle cx="${x0 + 3}" cy="45.5" r="2.6" fill="${c.color}"/><text x="${x0 + 10}" y="49" font-size="11.5" font-style="italic" fill="${darker(c.color, 0.1)}">${esc(fit(actionOf(m, now), w - x0 - labelW - 14, 11.5))}</text>`
-  const grow = bar(`cb${i}`, x0, 58, w - x0 - 2, 5, m.progressBefore, p.value, `url(#cbg${i})`, true, m.progressAt, now)
   return (
-    gradient(`cbg${i}`, c.color, lighter(c.color)) +
-    `<g transform="translate(4 12)">${crabMarkup(m, poseOf(m, now), now, `cg${i}`)}</g>` +
-    title +
-    pct +
-    task +
-    metaText +
-    action +
-    grow
+    `<circle cx="6" cy="13" r="4" fill="${c.color}"/>` +
+    `<text x="16" y="17" font-size="13"><tspan class="ink" font-weight="650">${esc(fit(m.name, 140, 13))}</tspan><tspan class="dim"> the ${esc(c.role)}</tspan></text>` +
+    `<text x="${w - 2}" y="17" font-size="12" font-weight="700" fill="${c.color}" text-anchor="end">${esc(label)}</text>` +
+    `<text class="dim" x="16" y="33" font-size="11.5">${esc(fit(m.description, w - 16 - metaW - 6, 11.5))}</text>` +
+    `<text class="faint" x="${w - 2}" y="33" font-size="10.5" text-anchor="end">${esc(meta)}</text>`
   )
 }
 
@@ -258,30 +357,33 @@ const CHIP: Record<Exclude<LensCrab['status'], 'running'>, { label: string; cls:
   stopped: { label: 'stopped', cls: 's' },
 }
 
-/** A crab back at base: a smaller crab, its name and role, how its run ended, its task and how long it took. */
+/** A crab back at base: a smaller crab, its name and role, how its run ended, its last line and its task. */
 function baseRow(w: number, m: LensCrab, i: number, now: number): string {
   const c = characterOf(m.character)
   const x0 = 54
   const chip = CHIP[m.status === 'running' ? 'done' : m.status]
   const chipW = textWidth(chip.label, 10.5) + 14
   const took = duration((m.endedAt ?? now) - m.startedAt)
+  const line = `“${quipOf(m, now)}”`
+  const lineW = textWidth(line, 11) + 8
   return (
     `<g transform="translate(9 6) scale(.78)">${crabMarkup(m, poseOf(m, now), now, `cg${i}`)}</g>` +
     `<text x="${x0}" y="19" font-size="12.5"><tspan class="ink" font-weight="650">${esc(fit(m.name, 130, 12.5))}</tspan><tspan class="dim"> the ${esc(c.role)}</tspan></text>` +
     `<g${attrs('', once('pop', m.endedAt ?? 0, now, 0.5))}><rect class="${chip.cls}chip" x="${f1(w - 2 - chipW)}" y="7" width="${f1(chipW)}" height="17" rx="8.5"/><text class="${chip.cls}chipt" x="${f1(w - 2 - chipW / 2)}" y="19" font-size="10.5" font-weight="650" text-anchor="middle">${chip.label}</text></g>` +
     `<text class="faint" x="${f1(w - 8 - chipW)}" y="19" font-size="10.5" text-anchor="end">${esc(took)}</text>` +
-    `<text class="faint" x="${x0}" y="36" font-size="11">${esc(fit(m.description, w - x0 - 4, 11))}</text>`
+    `<text x="${x0}" y="37" font-size="11"><tspan class="dim" font-style="italic">${esc(line)}</tspan><tspan class="faint"> · ${esc(fit(m.description, Math.max(30, w - x0 - lineW - 8), 11))}</tspan></text>`
   )
 }
 
 const crabAlt = (m: LensCrab, now: number) => `${m.name} the ${characterOf(m.character).role}, ${m.status === 'running' ? `${progressLabel(m)}, ${actionOf(m, now)}` : m.status}`
 
 /**
- * The crew as one picture: its crabs at work, then the ones back at base. For a moment after the
- * crew's order last changed (`move`), each crab that moved flies from its old place to its new one,
- * a crab that just finished flies down into the base list, and a new one flies in at the foot of
- * the working list; the crab with the news is lit as it lands and painted above the rest. A crab not
- * in flight comes in after `enterAt` (its section opened).
+ * The crew as one picture: the crabs at work on their beach, a text row each under it, then the ones
+ * back at base. For a moment after the crew's order last changed (`move`), each row that moved flies
+ * from its old place to its new one: a crab that just finished flies down into the base list, a new one
+ * flies in at the foot of the working list, and the lanes on the beach glide to their new order. The
+ * crab with the news is lit as it lands and painted above the rest. Rows not in flight come in after
+ * `enterAt` (the section opened).
  */
 export function crewSvg(w: number, working: LensCrab[], base: LensCrab[], move: LensMove | undefined, enterAt: number, now: number): Drawn {
   const order = [...working.map(m => m.id), BASE_MARK, ...base.map(m => m.id)]
@@ -307,6 +409,12 @@ export function crewSvg(w: number, working: LensCrab[], base: LensCrab[], move: 
       )
     })
     .join('')
+  // The beach grows and shrinks with the crew at work; when it changes size it eases into place.
+  const beachGrow = old && since < FLY && old.beachY !== lay.beachY ? old.beachY - lay.beachY : 0
+  const beach = working.length
+    ? `${beachGrow ? `<defs><style>@keyframes cbeach{from{transform:translateY(${beachGrow}px)}to{transform:none}}.cbeach{animation:cbeach ${FLY}s cubic-bezier(.25,.8,.25,1) ${(-since).toFixed(3)}s both}</style></defs>` : ''}` +
+      `<g transform="translate(0 ${lay.beachY})"><g${attrs(beachGrow ? 'cbeach' : '', once('fade', enterAt, now))}>${beachMarkup(w, working, old, since, now)}</g></g>`
+    : ''
   // Which crabs overtook another in their own list: compared among the crabs in that list both before
   // and after, so a crab that only closes a gap left by one that went is not lit as news.
   const oldParts = move ? splitOrder(move.from) : { work: [], base: [] }
@@ -329,7 +437,7 @@ export function crewSvg(w: number, working: LensCrab[], base: LensCrab[], move: 
     const isWorking = lay.working.has(m.id)
     const y = lay.y.get(m.id) ?? 0
     const h = isWorking ? ROW.work : ROW.base
-    const row = isWorking ? workRow(w, m, i, now) : baseRow(w, m, i, now)
+    const row = isWorking ? workRow(w, m, now) : baseRow(w, m, i, now)
     const oldY = old ? (old.y.get(m.id) ?? lay.workEnd) : y
     const dy = oldY - y
     if (!old || dy === 0) {
@@ -362,5 +470,49 @@ export function crewSvg(w: number, working: LensCrab[], base: LensCrab[], move: 
   ]
     .filter(Boolean)
     .join('. ')
-  return { svg: doc(w, height, heads + still.join('') + pushed.join('') + flying.join(''), CRAB_STYLE), height, alt }
+  return { svg: doc(w, height, heads + beach + still.join('') + pushed.join('') + flying.join(''), CRAB_STYLE), height, alt }
+}
+
+// ---------- the band above the prompt ----------
+
+export const BAND_H = 32
+
+/**
+ * The crew band: the crabs out since the last prompt (at work first), who is at work, and one bar of the
+ * crew's progress, a finished crab counting as done. The bar grows from where it was at the crew's last
+ * change; it shimmers while anyone is still out.
+ */
+export function bandSvg(w: number, shown: readonly LensCrab[], now: number): Drawn {
+  const working = shown.filter(m => m.status === 'running')
+  const valueOf = (m: LensCrab) => (m.status === 'running' ? progressOf(m).value : 1)
+  const at = Math.max(0, ...shown.map(m => m.progressAt))
+  const mean = shown.reduce((s, m) => s + valueOf(m), 0) / Math.max(1, shown.length)
+  const before = shown.reduce((s, m) => s + (m.progressAt === at ? m.progressBefore : valueOf(m)), 0) / Math.max(1, shown.length)
+  const room = Math.max(1, Math.floor((w * 0.32) / 30))
+  const faces = [...working, ...shown.filter(m => m.status !== 'running')].slice(0, room)
+  const crabs = faces.map((m, i) => `<g transform="translate(${i * 30} 3) scale(.6)">${crabMarkup(m, poseOf(m, now), now, `bg${i}`)}</g>`).join('')
+  const x0 = faces.length * 30 + 8
+  const back = shown.length - working.length
+  const who = working.length
+    ? `${working
+        .slice(0, 3)
+        .map(m => m.name)
+        .join(', ')}${working.length > 3 ? ` +${working.length - 3}` : ''} at work${back ? ` · ${back} back` : ''}`
+    : `All back at base · ${back}`
+  const barW = Math.max(48, Math.min(170, w * 0.24))
+  const pctW = 40
+  const barX = w - pctW - barW
+  const label = `${working.length ? '≈' : ''}${Math.round(mean * 100)}%`
+  const color = working.length ? ACCENT : '#22a06b'
+  const body =
+    crabs +
+    `<text class="ink" x="${x0}" y="20.5" font-size="12.5" font-weight="550">${esc(fit(who, barX - x0 - 10, 12.5))}</text>` +
+    gradient('bbg', color, lighter(color)) +
+    bar('bbar', barX, 13, barW, 7, before, mean, 'url(#bbg)', working.length > 0, at, now) +
+    `<text${attrs('dim', once('bump', at, now))} x="${w - 2}" y="20.5" font-size="11.5" font-weight="650" text-anchor="end">${esc(label)}</text>`
+  return {
+    svg: doc(w, BAND_H, body, CRAB_STYLE),
+    height: BAND_H,
+    alt: `Crew: ${who}, ${label} along`,
+  }
 }

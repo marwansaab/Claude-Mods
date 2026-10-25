@@ -232,3 +232,98 @@ export function crewSummary(crew: Record<string, LensCrab>): string {
   const back = all.length - out
   return [out ? `${out} at work` : '', back ? `${back} back` : ''].filter(Boolean).join(' · ')
 }
+
+// ---------- what a crab says ----------
+
+/** What a crab says depends on its mood: what it is doing, or how its run ended. */
+type Mood = LensActivity | 'wait' | 'done' | 'failed' | 'stopped'
+
+const GENERIC: Record<Mood, readonly string[]> = {
+  start: ['Reporting for duty!', 'Aye aye!', 'Claws ready.'],
+  think: ['Hmm, let me think', 'Pondering', 'Mulling it over'],
+  read: ['Reading {x}', 'Peeking at {x}'],
+  search: ['Searching for {x}', 'Combing the sand'],
+  edit: ['Tweaking {x}', 'Patching {x}'],
+  shell: ['Running {x}', 'Cranking the engine'],
+  web: ['Checking {x}', 'Asking the wider sea'],
+  delegate: ['Calling in help: {x}', 'Need a hand here!'],
+  plan: ['Making a list', 'Checking it twice'],
+  other: ['On it', 'Busy, busy'],
+  wait: ['Still waiting…', 'Tap, tap, tap'],
+  done: ['Back at base!', 'Job done.', 'Nailed it.'],
+  failed: ['Man overboard!', 'That went sideways.'],
+  stopped: ['Called back to base.', 'Standing down.'],
+}
+
+/** Each character's own lines, by mood; a mood with none falls back to the generic ones. */
+const QUIPS: Record<string, Partial<Record<Mood, readonly string[]>>> = {
+  deckhand: {
+    start: ["Aye, I'll handle it!", 'Rolling up me claws.'],
+    edit: ['Hammering {x} into shape', 'Swabbing {x}'],
+    shell: ['Hauling on {x}'],
+    wait: ['Leaning on the mop'],
+    done: ['Shipshape and done!', "Deck's clean, Cap'n."],
+    failed: ['Slipped on the deck!'],
+  },
+  scout: {
+    start: ['Off to explore!', 'Spyglass ready.'],
+    read: ['Spyglass on {x}', 'Ooh, what is {x}?'],
+    search: ['Land ho? Hunting {x}', 'Scanning for {x}'],
+    think: ['Mapping what I saw'],
+    done: ['Scouting report ready!', 'Charted it all!'],
+    failed: ['Lost in the fog!'],
+  },
+  navigator: {
+    start: ['Unrolling the charts.'],
+    think: ['Plotting a course', 'Weighing the winds'],
+    read: ['Studying {x}'],
+    search: ['Taking soundings: {x}'],
+    plan: ['Marking waypoints'],
+    done: ['Course plotted!', 'Heading set, Captain.'],
+    failed: ['Off the edge of the map!'],
+  },
+  professor: {
+    start: ['Ahem. To the library!'],
+    read: ['Consulting {x}'],
+    web: ['Looking it up: {x}'],
+    think: ['Fascinating, one moment'],
+    done: ['Footnotes included.'],
+    failed: ['The page is missing!'],
+  },
+  signaller: { start: ['Signals up!'], edit: ['Rewiring {x}'], shell: ['Testing the lamp: {x}'], done: ["Signal's lit!"] },
+  echo: { start: ['Same brain, new claws.'], think: ['As the Captain would'], done: ['Echo complete.'] },
+  cook: {
+    start: ['Firing up the galley!'],
+    edit: ['Stirring {x}', 'A pinch of {x}'],
+    shell: ['Turning up the heat'],
+    done: ['Order up!'],
+    failed: ['Burnt the omelette!'],
+  },
+  sleuth: {
+    start: ['The game is afoot!'],
+    search: ['Following the trail: {x}'],
+    read: ['Examining {x}'],
+    think: ['Connecting the dots'],
+    done: ['Case closed.'],
+    failed: ['The trail went cold.'],
+  },
+  wizard: {
+    start: ['By my shell!'],
+    edit: ['Enchanting {x}'],
+    shell: ['Casting {x}'],
+    think: ['Consulting the stars'],
+    done: ['Ta-da!'],
+    failed: ['The spell fizzled!'],
+  },
+  diver: { start: ['Taking the plunge!'], search: ['Diving for {x}'], read: ['Deep in {x}'], done: ['Surfaced with treasure!'], failed: ['Out of air!'] },
+}
+
+const moodOf = (m: LensCrab, now: number): Mood => (m.status !== 'running' ? m.status : poseOf(m, now) === 'wait' ? 'wait' : m.activity)
+
+/** The crab's line, in character: stable until it does something new, then a new one. */
+export function quipOf(m: LensCrab, now: number): string {
+  const mood = moodOf(m, now)
+  const list = QUIPS[m.character]?.[mood] ?? GENERIC[mood]
+  const i = hash(m.id + mood) + (m.status === 'running' ? m.toolCalls : 0)
+  return (list[i % list.length] ?? '').replace('{x}', clip(m.detail, 22) || 'the code')
+}
