@@ -13,6 +13,8 @@ Four sections that open and close on their own:
 
 The counts are for this session only: only tools and skills that were actually used appear. Calls made by subagents count too. The to-do list follows the main conversation only. Your layout (which sections and groups are open, grouped or flat, the sort) is kept for your next session.
 
+While the lens is open in front with **To-do** unfolded, the `TodoWrite`, `TaskCreate` and `TaskUpdate` rows in the transcript are hidden, as the pane shows the same list beside it. Fold To-do, close the pane or switch to another tab, and they come back. A row that failed stays, and the ctrl+o transcript shows them all. Turn this off with the `hidePlanRows` setting.
+
 In the desktop app the rows are animated drawings. A step that is ticked off draws its check and strike-through. The step in progress pulses, with a sheen across its text. A tool or skill used for the first time flies into its list from the bottom. One that changes place, because its count passed another's or you changed the sort, flies to its new spot past the others, lit as it lands. Tool bars grow, and a count bumps when it goes up.
 
 While a crew is out, a **crew band** sits just above the prompt. It shows their crabs, who is at work, and one bar of the crew's progress, so you can follow it without opening the pane. **Crew ×n** opens the lens at its crew, and **✕** hides the band until the next crew sets out. A new prompt sent with everyone back clears it.
@@ -60,12 +62,13 @@ In the desktop app the pane also opens by itself the first time a session uses a
 Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/settings.json`:
 
 ```json
-{ "pluginConfigs": { "session-lens": { "options": { "autoOpen": true, "crewBand": true } } } }
+{ "pluginConfigs": { "session-lens": { "options": { "autoOpen": true, "crewBand": true, "hidePlanRows": true } } } }
 ```
 
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `crewBand` | `true` | Show the crew band above the prompt while subagents are out. |
+| `hidePlanRows` | `true` | Hide the main conversation's `TodoWrite`, `TaskCreate` and `TaskUpdate` rows in the transcript while the pane is open in front with To-do unfolded. |
 | `autoOpen` | `true` | In the desktop app, open the pane the first time a session uses a tool or a skill, unless you closed it (with its close mark or `/lens`) in your last session. In a terminal, the pane opens only with `/lens`. |
 
 ## How it works
@@ -73,6 +76,7 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 - A `tool.call` hook lets each call run, then counts it unless it was denied. It never changes the call, and a failure inside it is swallowed.
 - The to-do list is rebuilt from the plan tools the main conversation calls: `TodoWrite`, `TaskCreate` and `TaskUpdate`, and the desktop app's own task list (`update_plan`, with `advance`, `done` and `start`). The desktop app's closing `wrap_up` call ticks every step off.
 - The crew comes from the subagents' own events. `agent.spawn` casts a crab by agent type: `general-purpose` is a Deckhand, `Explore` a Scout, `Plan` a Navigator, `claude-code-guide` a Professor, `statusline-setup` a Signaller and `fork` an Understudy. Any other type is always dealt the same one of the Cook, Sleuth, Wizard and Diver. A subagent's `turn.step` sets its crab thinking, its `tool.call`s say what it is doing and feed its to-do progress, and its `turn.complete` says how the run ended. A crab that is done stays on the beach for 3 s, and a timer then notes the crew's new order so it flies to the list. The main conversation's own `turn.step`, `tool.call` and `turn.complete` do the same for the captain. While a crab works, the pane is redrawn every 5 s so a crab left without a call is drawn waiting. The band above the prompt is a `ui.render` hook on `AbovePrompt`: it shows the crabs that set out or came back since the last prompt sent with no one out, and draws what Claude Code and other mods put in the band under its own, as the band is shared; it leaves the band to them when there are none, or when a survey is up. The cast, its lines and the progress estimate are adapted from this repository's [crab-crew](../crab-crew) mod. A crab's walk along its lane is pinned to when its progress moved, as every animation here is.
+- `ui.render` hooks on `ToolUse` and `ToolResult` draw nothing for a plan call's row while the pane is shown (`$.ui.panes()`) and To-do is unfolded. They hide only the calls the main conversation made, noted by id in `tool.call` and from a resumed session's transcript, and pass every other row, an errored one and the expanded ctrl+o view to the engine. Opening or closing the pane asks for a redraw so the rows follow.
 - A `skill.prompt` hook counts each skill as it is expanded for the model, whether typed as `/name`, called through the Skill tool, or preloaded.
 - Group names come from the session's context breakdown (`$.session.usage({ breakdown: 'summary' })`). It gives the name `/mcp` lists for each server, so a claude.ai connector shows its name rather than its id. The same breakdown names the skills loaded through memory files. It is read when the session starts, when `/lens` opens the pane, and when a tool from a new server is first called.
 - A resumed session's earlier calls are counted once, from its transcript. A `/clear` starts the counts over and keeps the pane's layout.
@@ -87,6 +91,7 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 - A connector whose server name the context breakdown does not list shows as `Connector` plus the first characters of its id.
 - A skill typed as `/name` in a resumed session's earlier turns is not counted; skills called through the Skill tool are.
 - The mobile app draws no text field, so it has no filter there.
+- The desktop app's own task list, pinned under the latest message, is drawn by the app and no mod can hide it; `hidePlanRows` hides the transcript rows of the plan tools only. Switching the pane's tab is no event a mod hears, so after one the rows follow at the session's next redraw.
 - Built on Claude Code's function-hook plugin API (early access), tested against Claude Code 2.1.307.
 
 ## Credits

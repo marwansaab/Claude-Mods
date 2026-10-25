@@ -44,6 +44,24 @@ const crewBandSince = atom({ plugin: 'session-lens', key: 'crewBandSince' } as c
 const IDLE: LensCaptain = { isBusy: false, activity: 'other', detail: '', lastActiveAt: 0 }
 const captain = atom({ plugin: 'session-lens', key: 'captain' } as const, IDLE)
 const raceSince = atom({ plugin: 'session-lens', key: 'raceSince' } as const, 0)
+const planRows = atom({ plugin: 'session-lens', key: 'planRows' } as const, [] as string[])
+
+/** The plan tools whose rows the transcript draws: the lens's To-do shows the same list. */
+const ROW_TOOLS = new Set(['TodoWrite', 'TaskCreate', 'TaskUpdate'])
+const MAX_PLAN_ROWS = 300
+
+/** Whether this call's list is in the lens in front of the person: one of the main conversation's plan calls, with the pane shown and To-do unfolded. */
+async function isPlanInLens($: EngineInterface, tool: string, id: string): Promise<boolean> {
+  if (!ROW_TOOLS.has(tool) || !(await read($, planRows)).includes(id)) return false
+  if (viewOf(await read($, view)).folded.includes('todo')) return false
+  return (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)
+}
+
+/** Notes a row the lens may hide: one of the main conversation's plan calls. */
+async function notePlanRow($: EngineInterface, tool: string, id: string | undefined): Promise<void> {
+  if (!id || !ROW_TOOLS.has(tool)) return
+  await update($, planRows, cur => (cur.includes(id) ? cur : [...cur, id].slice(-MAX_PLAN_ROWS)))
+}
 
 /** The captain is the main thread: what it is doing now, or that it is waiting for you. */
 async function setCaptain($: EngineInterface, isBusy: boolean, activity: LensActivity, detail: string): Promise<void> {
@@ -132,6 +150,8 @@ async function openPane($: EngineInterface): Promise<void> {
     return { ...full, toggledAt: { ...full.toggledAt, pane: at } }
   })
   await $.ui.open({ id: PANE, title: TITLE })
+  // The plan's rows in the transcript go as the To-do shows beside them.
+  $.ui.invalidate('ui.render')
   settle($)
   await safely(() => $.store.set(CLOSED_KEY, false))
 }
@@ -170,7 +190,10 @@ async function seed($: EngineInterface): Promise<void> {
       await update($, tools, cur => countTool(cur, u.tool, u.isError === true, stamp))
       if (u.tool === 'Skill' && typeof u.input.skill === 'string' && u.input.skill)
         await update($, skills, cur => countSkill(cur, String(u.input.skill).replace(/^\//, ''), stamp))
-      if (PLAN_TOOLS.has(u.tool) && u.isError !== true) await update($, plan, cur => planAfter(cur, u.tool, u.input, u.result, stamp) ?? cur)
+      if (PLAN_TOOLS.has(u.tool) && u.isError !== true) {
+        await update($, plan, cur => planAfter(cur, u.tool, u.input, u.result, stamp) ?? cur)
+        await notePlanRow($, u.tool, u.tool_use_id)
+      }
     }
   }  // The order the history left, noted so the next change flies from it.
   await noteMoves($)
@@ -199,6 +222,7 @@ async function openCrew($: EngineInterface): Promise<void> {
 export const register: Register = (on, options) => {
   const isAutoOpenOn = options.autoOpen !== false
   const isBandOn = options.crewBand !== false
+  const isHideRowsOn = options.hidePlanRows !== false
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -342,6 +366,8 @@ export const register: Register = (on, options) => {
   on('ui.close', async ($, e, next) => {
     const out = await next(e)
     if (e.id === PANE && e.origin.kind === 'person') await safely(() => $.store.set(CLOSED_KEY, true))
+    // The plan's rows in the transcript come back with the pane gone.
+    if (e.id === PANE) await safely(async () => $.ui.invalidate('ui.render'))
     return out
   }).catch(($, e, next) => next(e))
 
@@ -367,6 +393,7 @@ export const register: Register = (on, options) => {
     // A subagent's call: its crab is doing this now, and its own to-do list may move its progress.
     const agentId = e.agentId
     if (!agentId) await safely(() => setCaptain($, true, activityOf(String(e.tool)), detailOf(e as unknown as Record<string, unknown>)))
+    if (!agentId) await safely(() => notePlanRow($, String(e.tool), e.tool_use_id))
     if (agentId)
       await safely(async () => {
         const tool = String(e.tool)
@@ -416,6 +443,17 @@ export const register: Register = (on, options) => {
     })
     return out
   }).catch(($, e, next) => next(e))
+
+  // The main conversation's plan rows in the transcript, hidden while the lens shows the same list beside
+  // them. A row that errored, the ctrl+o transcript and a subagent's own list are drawn as ever.
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    const p = e.props
+    return isHideRowsOn && !p.isErrored && p.isExpanded !== true && (await isPlanInLens($, p.tool, p.tool_use_id)) ? <></> : next(e)
+  })
+  on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    const p = e.props
+    return isHideRowsOn && !p.isErrored && p.isExpanded !== true && (await isPlanInLens($, p.tool, p.tool_use_id)) ? <></> : next(e)
+  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)

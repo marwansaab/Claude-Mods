@@ -1105,3 +1105,95 @@ describe('the crew band', () => {
     await ui.unmount()
   })
 })
+
+// ---------- the plan's rows in the transcript ----------
+
+describe('the plan’s rows in the transcript', () => {
+  // A TodoWrite row as the transcript asks for it, and its result block under it.
+  const rowOf = (component: 'ToolUse' | 'ToolResult', id: string, over: Record<string, unknown> = {}) =>
+    ({
+      plugin: 'session-lens',
+      component,
+      requestId: id,
+      props: { tool_use_id: id, tool: 'TodoWrite', input: {}, output: {}, isRunning: false, isErrored: false, isInterrupted: false, isExpanded: false, view: {}, ...over },
+    }) as never
+  // What the engine draws for the rows when the mod passes: stand-ins to tell them from nothing.
+  const engineRows = (on: On) => {
+    on('ui.render', { component: 'ToolUse' }, ($, e) => {
+      const { Text } = $.ui.resolve(e)
+      return h(Text, {}, 'engine ToolUse') as RenderElement
+    })
+    on('ui.render', { component: 'ToolResult' }, ($, e) => {
+      const { Text } = $.ui.resolve(e)
+      return h(Text, {}, 'engine ToolResult') as RenderElement
+    })
+  }
+  // The lens pane, open in front or not, as `$.ui.panes()` answers.
+  const lensPane = (on: On) => {
+    const pane = { isOpen: true, isShown: true }
+    on('ui.panes', () => ({ value: pane.isOpen ? [{ id: 'session-lens', title: 'Session lens', isShown: pane.isShown, isFocused: false, isPlaced: true }] : [] }))
+    return pane
+  }
+  const todos = { todos: [{ content: 'Write the fix', status: 'in_progress', activeForm: 'Writing the fix' }] }
+  const drawn = async ($: Engine, component: 'ToolUse' | 'ToolResult', id: string, surface: 'terminal' | 'desktop', over: Record<string, unknown> = {}) => {
+    const ui = await $.ui.mount({ ...(rowOf(component, id, over) as object), surface } as never)
+    const has = (await ui.find({ text: `engine ${component}` })) !== undefined
+    await ui.unmount()
+    return has
+  }
+
+  test('hidden while the lens shows the To-do in front; back when it folds, closes or goes behind a tab', async ($, on) => {
+    mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    on('tool.call', () => ({ result: {} }))
+    engineRows(on)
+    const pane = lensPane(on)
+    await $.tool.call({ tool: 'TodoWrite', tool_use_id: 'tw1', ...todos } as never)
+    for (const surface of SURFACES) {
+      expect(await drawn($, 'ToolUse', 'tw1', surface)).toBe(false)
+      expect(await drawn($, 'ToolResult', 'tw1', surface)).toBe(false)
+    }
+    // To-do folded: the lens no longer shows the list, so the transcript does.
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await ui.press({ key: 'sec-todo' })
+    await ui.unmount()
+    expect(await drawn($, 'ToolUse', 'tw1', 'terminal')).toBe(true)
+    const again = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await again.press({ key: 'sec-todo' })
+    await again.unmount()
+    expect(await drawn($, 'ToolUse', 'tw1', 'terminal')).toBe(false)
+    pane.isShown = false
+    expect(await drawn($, 'ToolUse', 'tw1', 'desktop')).toBe(true)
+    pane.isShown = true
+    pane.isOpen = false
+    expect(await drawn($, 'ToolUse', 'tw1', 'desktop')).toBe(true)
+  })
+
+  test('an errored row, the ctrl+o transcript and a subagent’s own list are drawn as ever', async ($, on) => {
+    mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    on('tool.call', () => ({ result: {} }))
+    engineRows(on)
+    lensPane(on)
+    await $.tool.call({ tool: 'TodoWrite', tool_use_id: 'tw1', ...todos } as never)
+    await $.tool.call({ tool: 'TodoWrite', tool_use_id: 'sub1', agentId: 'agent-2', ...todos } as never)
+    await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/a.ts' } as never)
+    expect(await drawn($, 'ToolUse', 'tw1', 'terminal', { isErrored: true })).toBe(true)
+    expect(await drawn($, 'ToolUse', 'tw1', 'terminal', { isExpanded: true })).toBe(true)
+    expect(await drawn($, 'ToolUse', 'sub1', 'terminal')).toBe(true)
+    expect(await drawn($, 'ToolUse', 'r1', 'terminal', { tool: 'Read' })).toBe(true)
+  })
+
+  test('the setting off leaves every row as it is', { options: { hidePlanRows: false } }, async ($, on) => {
+    mock.clock(on, { now: 1_000 })
+    mock.store(on)
+    on('tool.call', () => ({ result: {} }))
+    engineRows(on)
+    lensPane(on)
+    await $.tool.call({ tool: 'TodoWrite', tool_use_id: 'tw1', ...todos } as never)
+    for (const surface of SURFACES) {
+      expect(await drawn($, 'ToolUse', 'tw1', surface)).toBe(true)
+      expect(await drawn($, 'ToolResult', 'tw1', surface)).toBe(true)
+    }
+  })
+})

@@ -154,6 +154,8 @@ declare module 'claude-code' {
       isLayoutLoaded: boolean
       /** True once the pane opened by itself this session. */
       isAutoOpened: boolean
+      /** The main conversation's TodoWrite, TaskCreate and TaskUpdate calls, by tool_use_id: the rows the lens may hide. */
+      planRows: string[]
     }
   }
 }
