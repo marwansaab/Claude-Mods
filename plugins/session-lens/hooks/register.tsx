@@ -223,6 +223,7 @@ export const register: Register = (on, options) => {
   const isAutoOpenOn = options.autoOpen !== false
   const isBandOn = options.crewBand !== false
   const isHideRowsOn = options.hidePlanRows !== false
+  const isQuipsOn = options.showQuips !== false
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -501,6 +502,7 @@ export const register: Register = (on, options) => {
       crew: await read($, crew),
       captain: await read($, captain),
       raceSince: await read($, raceSince),
+      showQuips: isQuipsOn,
       // Read so the timer's tick redraws the pane; the drawing itself goes by the clock.
       now: Math.max(await $.clock.now(), await read($, crewTick)),
       act: {

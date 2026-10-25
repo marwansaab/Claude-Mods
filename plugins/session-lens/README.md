@@ -37,6 +37,7 @@ In the desktop app the rows are animated drawings, in light and dark. Each anima
 - **Totals.** Beside each list's title are the race's totals for that list, a `·` between each: how many, how many went overboard or were called back, their calls and tokens, and the time. `At work · 4 · 37 calls · 715k tok · 2:20`.
 - **Races.** A race starts when a crab sets out with no one at work. The lists show that race's crabs, so **Reported back** starts empty with each one. **At work** and **Reported back** fold on their own, and the beach stays.
 - **Who's who.** **? who** beside the summary opens a strip of the characters on duty, the captain first, with the agent types each stands for.
+- **Quiet crabs.** With the `showQuips` setting off, the crabs say nothing: no bubbles on the beach, and no last line under the crabs that reported back (their rows are shorter). The rows' details, the walk and the poses stay.
 
 Progress comes from the agent's own to-do list when it keeps one (`3/5`), else an estimate that rises with its calls toward 92% at its character's pace (`≈45%`): only a finished crab reaches the flag. Tokens are summed over each of the agent's model requests (input, output and cache reads and writes), as crab-crew counted them.
 
@@ -125,12 +126,13 @@ In the desktop app the pane also opens by itself the first time a session uses a
 Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/settings.json`:
 
 ```json
-{ "pluginConfigs": { "session-lens": { "options": { "autoOpen": true, "crewBand": true, "hidePlanRows": true } } } }
+{ "pluginConfigs": { "session-lens": { "options": { "autoOpen": true, "crewBand": true, "showQuips": true, "hidePlanRows": true } } } }
 ```
 
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `crewBand` | `true` | Show the crew band above the prompt while subagents are out. |
+| `showQuips` | `true` | Show the crabs' speech bubbles on the beach and their last lines in the crew lists. Off, the captain's line in the terminal says only whether he is at the helm. |
 | `hidePlanRows` | `true` | Hide the main conversation's `TodoWrite`, `TaskCreate` and `TaskUpdate` rows in the transcript while the pane is open in front with To-do unfolded. |
 | `autoOpen` | `true` | In the desktop app, open the pane the first time a session uses a tool or a skill, unless you closed it (with its close mark or `/lens`) in your last session. In a terminal, the pane opens only with `/lens`. |
 

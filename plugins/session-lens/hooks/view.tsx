@@ -42,6 +42,8 @@ export type Ctx = {
   captain: LensCaptain
   /** When the current race began: the lists show its crabs alone. */
   raceSince: number
+  /** The crabs say their lines: bubbles on the beach, last lines in the lists (the `showQuips` setting). */
+  showQuips: boolean
   /** When this drawing is made: each animation is drawn as it stands at this moment. */
   now: number
   act: Actions
@@ -198,7 +200,7 @@ function crabLine(ctx: Ctx, m: LensCrab): RenderElement {
         </Text>
         <Text dimColor wrap="truncate-end">
           {m.description}
-          <Text italic>{`  “${quipOf(m, ctx.now)}”`}</Text>
+          {ctx.showQuips ? <Text italic>{`  “${quipOf(m, ctx.now)}”`}</Text> : null}
         </Text>
       </Box>
     </Box>
@@ -252,14 +254,14 @@ function crewSection(ctx: Ctx): RenderElement {
         doneBefore: ctx.plan.doneBefore,
         changedAt: ctx.plan.updatedAt,
       }
-      rows.push(picture(ctx, 'crew-beach', beachSvg(w, working, ctx.moves.crew, sectionAt(ctx, 'crew'), ctx.now, skipper), w)!)
+      rows.push(picture(ctx, 'crew-beach', beachSvg(w, working, ctx.moves.crew, sectionAt(ctx, 'crew'), ctx.now, skipper, ctx.showQuips), w)!)
       if (working.length) {
         rows.push(crewListHead(ctx, 'crewWork', 'At work', working))
         if (workOpen) rows.push(picture(ctx, 'crew-work', crewListSvg(w, 'work', working, ctx.moves.crew, latest(sectionAt(ctx, 'crew'), ctx.view.toggledAt.crewWork), ctx.now), w)!)
       }
       if (base.length) {
         rows.push(crewListHead(ctx, 'crewBase', 'Reported back', base))
-        if (baseOpen) rows.push(picture(ctx, 'crew-base', crewListSvg(w, 'base', base, ctx.moves.crew, latest(sectionAt(ctx, 'crew'), ctx.view.toggledAt.crewBase), ctx.now), w)!)
+        if (baseOpen) rows.push(picture(ctx, 'crew-base', crewListSvg(w, 'base', base, ctx.moves.crew, latest(sectionAt(ctx, 'crew'), ctx.view.toggledAt.crewBase), ctx.now, ctx.showQuips), w)!)
       }
       return rows
     }
@@ -279,7 +281,7 @@ function crewSection(ctx: Ctx): RenderElement {
       <Text key="crew-captain" wrap="truncate-end">
         <Text color={ACCENT}>{ctx.captain.isBusy ? '(\\/)(°,,°)(\\/) ' : '(\\/)(-,,-)(\\/) '}</Text>
         <Text bold>{CAPTAIN_NAME}</Text>
-        <Text dimColor>{` · ${captainQuip(ctx.captain)}`}</Text>
+        <Text dimColor>{` · ${ctx.showQuips ? captainQuip(ctx.captain) : ctx.captain.isBusy ? 'at the helm' : 'off watch'}`}</Text>
       </Text>,
     )
     const group = (id: 'crewWork' | 'crewBase', label: string, list: LensCrab[], isOpen: boolean) =>

@@ -210,7 +210,7 @@ export function crabSvg(m: Pick<LensCrab, 'character' | 'endedAt'>, pose: Pose, 
  * Heights: a lane of the beach; the beach's sky and waves above its lanes, and the sand below them;
  * a working crab's row; a crab's row among those reported back.
  */
-const ROW = { lane: 38, sky: 24, shore: 10, work: 42, base: 60 } as const
+const ROW = { lane: 38, sky: 24, shore: 10, work: 42, base: 60, baseQuiet: 46 } as const
 
 /** How tall the beach is for this many lanes: the captain's, and one per crab on it. */
 const beachH = (lanes: number) => ROW.sky + lanes * ROW.lane + ROW.shore
@@ -296,7 +296,7 @@ const captainWalker = (s: Skipper): Walker => ({
  * back. A step is pinned to when the progress moved; a lane that changes place glides there, and a new
  * one fades in.
  */
-function beachMarkup(w: number, walkers: Walker[], oldLanes: Map<string, number> | null, since: number, now: number): string {
+function beachMarkup(w: number, walkers: Walker[], oldLanes: Map<string, number> | null, since: number, now: number, showQuips: boolean): string {
   const h = beachH(walkers.length)
   const flagX = w - 50
   const laneW = flagX - 40
@@ -328,7 +328,7 @@ function beachMarkup(w: number, walkers: Walker[], oldLanes: Map<string, number>
       // The bubble goes where the line fits: right of the crab, else left if there is more room there.
       const need = textWidth(m.line, 10.5) + 30
       const isLeft = m.isPast || (need > roomRight && x - 6 > roomRight)
-      const bubble = bubbleAt(isLeft ? x - 2 : x + 38, top + 6, m.line, isLeft, m.pose === 'think', isLeft ? x - 6 : roomRight, once('pop', m.saidAt, now), now)
+      const bubble = showQuips ? bubbleAt(isLeft ? x - 2 : x + 38, top + 6, m.line, isLeft, m.pose === 'think', isLeft ? x - 6 : roomRight, once('pop', m.saidAt, now), now) : ''
       // A lane that changed place glides there with its crab; a new lane fades in. The captain's stays first.
       const was = i === 0 ? 0 : oldLanes?.get(m.key)
       const glide = oldLanes && since < FLY ? (was === undefined ? 'new' : was !== i ? (was - i) * ROW.lane : 0) : 0
@@ -395,7 +395,7 @@ const CHIP: Record<Exclude<LensCrab['status'], 'running'>, { label: string; cls:
  * A crab back at base: a smaller crab, its name, role and task, and how its run ended; under them how long
  * it took, its model, calls and tokens; then its last line.
  */
-function baseRow(w: number, m: LensCrab, i: number, now: number): string {
+function baseRow(w: number, m: LensCrab, i: number, now: number, showQuips: boolean): string {
   const x0 = 54
   const chip = CHIP[m.status === 'running' ? 'done' : m.status]
   const chipW = textWidth(chip.label, 10.5) + 14
@@ -404,7 +404,7 @@ function baseRow(w: number, m: LensCrab, i: number, now: number): string {
     crabTitle(x0, 19, m, w - x0 - chipW - 10) +
     `<g${attrs('', once('pop', m.endedAt ?? 0, now, 0.5))}><rect class="${chip.cls}chip" x="${f1(w - 2 - chipW)}" y="7" width="${f1(chipW)}" height="17" rx="8.5"/><text class="${chip.cls}chipt" x="${f1(w - 2 - chipW / 2)}" y="19" font-size="10.5" font-weight="650" text-anchor="middle">${chip.label}</text></g>` +
     `<text class="dim" x="${x0}" y="36" font-size="11">${esc(metaText(m, now, w - x0 - 4, 11))}</text>` +
-    `<text class="faint" x="${x0}" y="52" font-size="11" font-style="italic">${esc(fit(`“${quipOf(m, now)}”`, w - x0 - 4, 11))}</text>`
+    (showQuips ? `<text class="faint" x="${x0}" y="52" font-size="11" font-style="italic">${esc(fit(`“${quipOf(m, now)}”`, w - x0 - 4, 11))}</text>` : '')
   )
 }
 
@@ -425,13 +425,16 @@ function lastMove(move: LensMove | undefined, now: number): { since: number; bef
  * order changed, a lane that moved glides to its new place and a new one fades in. It comes in after
  * `enterAt` (its section opened).
  */
-export function beachSvg(w: number, working: LensCrab[], move: LensMove | undefined, enterAt: number, now: number, skipper: Skipper = IDLE_SKIPPER): Drawn {
+export function beachSvg(w: number, working: LensCrab[], move: LensMove | undefined, enterAt: number, now: number, skipper: Skipper = IDLE_SKIPPER, showQuips = true): Drawn {
   const last = lastMove(move, now)
   const oldLanes = last ? new Map(last.before.work.map((id, i) => [id, i + 1])) : null
   const walkers = [captainWalker(skipper), ...working.map(m => crabWalker(m, now))]
   const h = beachH(walkers.length)
-  const body = `<g${attrs('', once('fade', enterAt, now))}>${beachMarkup(w, walkers, oldLanes, last?.since ?? Infinity, now)}</g>`
-  const alt = [`${CAPTAIN_NAME}: ${captainQuip(skipper.captain)}`, ...working.map(m => `${m.name}: ${quipOf(m, now)}`)].join('. ')
+  const body = `<g${attrs('', once('fade', enterAt, now))}>${beachMarkup(w, walkers, oldLanes, last?.since ?? Infinity, now, showQuips)}</g>`
+  // Their lines, or, with the crabs quiet, who is on the beach and how far each has got.
+  const alt = showQuips
+    ? [`${CAPTAIN_NAME}: ${captainQuip(skipper.captain)}`, ...working.map(m => `${m.name}: ${quipOf(m, now)}`)].join('. ')
+    : [`${CAPTAIN_NAME}, ${skipper.captain.isBusy ? 'at the helm' : 'off watch'}`, ...working.map(m => `${m.name}, ${progressLabel(m)}`)].join('. ')
   return { svg: doc(w, h, body, CRAB_STYLE), height: h, alt }
 }
 
@@ -442,16 +445,16 @@ export function beachSvg(w: number, working: LensCrab[], move: LensMove | undefi
  * its title into the top of those back) and is painted above the rest. Rows not in flight come in after
  * `enterAt` (the list or its section opened).
  */
-export function crewListSvg(w: number, kind: 'work' | 'base', list: LensCrab[], move: LensMove | undefined, enterAt: number, now: number): Drawn {
+export function crewListSvg(w: number, kind: 'work' | 'base', list: LensCrab[], move: LensMove | undefined, enterAt: number, now: number, showQuips = true): Drawn {
   const last = lastMove(move, now)
   const before = last ? last.before[kind] : null
-  const h = kind === 'work' ? ROW.work : ROW.base
+  const h = kind === 'work' ? ROW.work : showQuips ? ROW.base : ROW.baseQuiet
   const still: string[] = []
   const pushed: string[] = []
   const flying: string[] = []
   list.forEach((m, i) => {
     const y = i * h
-    const row = kind === 'work' ? workRow(w, m, now) : baseRow(w, m, i, now)
+    const row = kind === 'work' ? workRow(w, m, now) : baseRow(w, m, i, now, showQuips)
     const was = before ? before.indexOf(m.id) : i
     const isNew = before !== null && was < 0
     // A crab new to the list comes from below its last row (at work), or from just above its first (back).
