@@ -2,8 +2,10 @@
 // The desktop draws each row as an animated SVG; the terminal draws the same rows in text.
 import type { Elements, RenderElement } from 'claude-code'
 
-import type { LensMove, LensPlan, LensSection, LensSkill, LensSort, LensTool, LensView } from '../types'
+import type { LensCrab, LensCrewSort, LensMove, LensPlan, LensSection, LensSkill, LensSort, LensTool, LensView } from '../types'
 import { ACCENT, barShare, groupTileSvg, groupTotalSvg, hueOf, skillListSvg, stepSvg, todoProgressSvg, toolListSvg } from './art'
+import { crewSvg } from './crabs'
+import { actionOf, characterOf, crewLists, crewSummary, duration, progressLabel, progressOf } from './crew'
 import { doneOf, isGroupOpen, plural, skillList, toolGroups, toolRows } from './track'
 import type { ToolGroup, ToolRow } from './track'
 
@@ -17,6 +19,7 @@ export type Actions = {
   setGrouped: (isGrouped: boolean) => void
   setSort: (sort: LensSort) => void
   setFilter: (text: string) => void
+  setCrewSort: (sort: LensCrewSort) => void
 }
 
 export type Ctx = {
@@ -32,6 +35,8 @@ export type Ctx = {
   view: LensView
   /** Each list's last change of order, so its rows fly to their new places once. */
   moves: Record<string, LensMove>
+  /** This session's subagents, each played by a crab. */
+  crew: Record<string, LensCrab>
   /** When this drawing is made: each animation is drawn as it stands at this moment. */
   now: number
   act: Actions
@@ -136,6 +141,87 @@ function todoSection(ctx: Ctx): RenderElement {
         })}
       </Box>,
     ]
+  })
+}
+
+// ---------- crew ----------
+
+const CREW_SORTS: { sort: LensCrewSort; label: string }[] = [
+  { sort: 'progress', label: 'Progress' },
+  { sort: 'name', label: 'A–Z' },
+]
+const OUTCOME: Record<LensCrab['status'], { glyph: string; color: string }> = {
+  running: { glyph: '●', color: ACCENT },
+  done: { glyph: '✓', color: GOOD },
+  failed: { glyph: '✗', color: '#e5484d' },
+  stopped: { glyph: '■', color: '#8a8984' },
+}
+
+/** One crab in the terminal: its mark, name and role, then progress and doing, or how its run ended. */
+function crabLine(ctx: Ctx, m: LensCrab): RenderElement {
+  const { Box, Text } = ctx.ui
+  const c = characterOf(m.character)
+  const o = OUTCOME[m.status]
+  const bar = cells(progressOf(m).value, 8)
+  return (
+    <Box key={`crab-${m.id}`} flexDirection="column">
+      <Box flexDirection="row" justifyContent="space-between" gap={1}>
+        <Text wrap="truncate-end">
+          <Text color={o.color}>{`${o.glyph} `}</Text>
+          <Text bold>{m.name}</Text>
+          <Text dimColor>{` the ${c.role}`}</Text>
+        </Text>
+        {m.status === 'running' ? (
+          <Text>
+            <Text color={c.color}>{bar.on}</Text>
+            <Text dimColor>{bar.off}</Text>
+            <Text bold>{` ${progressLabel(m)}`}</Text>
+          </Text>
+        ) : (
+          <Text dimColor>{`${m.status} · ${duration((m.endedAt ?? ctx.now) - m.startedAt)}`}</Text>
+        )}
+      </Box>
+      <Box paddingLeft={2}>
+        <Text dimColor wrap="truncate-end">
+          {m.status === 'running' ? actionOf(m, ctx.now) : m.description}
+        </Text>
+      </Box>
+    </Box>
+  )
+}
+
+/** The crew: who is out at work and who is back at base, in the order chosen. */
+function crewSection(ctx: Ctx): RenderElement {
+  const { Box, Text, Button } = ctx.ui
+  const { working, base } = crewLists(ctx.crew, ctx.view.crewSort)
+  const right = working.length + base.length ? crewSummary(ctx.crew) : null
+  return section(ctx, 'crew', 'Crew', right, () => {
+    if (!working.length && !base.length) return []
+    const sorts = (
+      <Box key="crew-sorts" flexDirection="row" gap={1} alignItems="center">
+        {CREW_SORTS.map(s => (
+          <Button
+            key={`crew-sort-${s.sort}`}
+            plain
+            dimColor={ctx.view.crewSort !== s.sort}
+            label={`${ctx.view.crewSort === s.sort ? '● ' : ''}${s.label}`}
+            onPress={() => ctx.act.setCrewSort(s.sort)}
+          />
+        ))}
+      </Box>
+    )
+    if (ctx.isPictured) {
+      const w = rowPixels(ctx.columns)
+      return [sorts, picture(ctx, 'crew-list', crewSvg(w, working, base, ctx.moves.crew, sectionAt(ctx, 'crew'), ctx.now), w)!]
+    }
+    const group = (key: string, label: string, list: LensCrab[]) =>
+      list.length ? (
+        <Box key={key} flexDirection="column">
+          <Text dimColor bold>{`${label} · ${list.length}`}</Text>
+          {list.map(m => crabLine(ctx, m))}
+        </Box>
+      ) : null
+    return [sorts, group('crew-work', 'At work', working), group('crew-base', 'Back at base', base)].filter((x): x is RenderElement => x !== null)
   })
 }
 
@@ -306,6 +392,7 @@ export function paneView(ctx: Ctx): RenderElement {
   return (
     <Box flexDirection="column" gap={1}>
       {todoSection(ctx)}
+      {crewSection(ctx)}
       {skillsSection(ctx)}
       {toolsSection(ctx)}
     </Box>

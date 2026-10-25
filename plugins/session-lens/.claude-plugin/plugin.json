@@ -1,7 +1,7 @@
 {
   "name": "session-lens",
-  "version": "0.1.0",
-  "description": "A session lens pane (/lens): Claude's to-do list, the skills and the tools this session used, each section folding on its own; tools grouped by server or listed flat, sorted and filtered, with animated rows on the desktop.",
+  "version": "0.2.0",
+  "description": "A session lens pane (/lens): Claude's to-do list, its crew of subagents as animated crabs, and the skills and tools this session used, each section folding on its own; tools grouped by server or listed flat, sorted and filtered, with animated rows on the desktop.",
   "author": {
     "name": "Marwan Saab",
     "url": "https://github.com/marwansaab"
@@ -14,6 +14,8 @@
     "tasks",
     "skills",
     "tools",
+    "subagents",
+    "crabs",
     "mcp",
     "session",
     "panel"

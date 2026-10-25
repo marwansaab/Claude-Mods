@@ -26,7 +26,7 @@
     {
       "name": "session-lens",
       "source": "./plugins/session-lens",
-      "description": "A session lens pane (/lens): Claude's to-do list, the skills and the tools this session used, each section folding on its own; tools grouped by server or listed flat, sorted and filtered, with animated rows on the desktop."
+      "description": "A session lens pane (/lens): Claude's to-do list, its crew of subagents as animated crabs, and the skills and tools this session used, each section folding on its own; tools grouped by server or listed flat, sorted and filtered, with animated rows on the desktop."
     }
   ]
 }

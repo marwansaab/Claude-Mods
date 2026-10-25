@@ -1,15 +1,17 @@
 // What the lens keeps count of: the task list after each plan tool call, each tool's uses, each skill's,
 // and how the tools are grouped, sorted and filtered for drawing. Pure functions: no `$` here.
-import type { LensLayout, LensMove, LensPlan, LensSection, LensSkill, LensSort, LensStep, LensTool, LensView } from '../types'
+import type { LensCrab, LensCrewSort, LensLayout, LensMove, LensPlan, LensSection, LensSkill, LensSort, LensStep, LensTool, LensView } from '../types'
+import { crewOrder } from './crew'
 
 // ---------- layout ----------
 
 /** The layout the first session starts with: To-do and Skills open, Tools closed, its groups collapsed. */
-export const DEFAULT_LAYOUT: LensLayout = { folded: ['tools'], groupsOpen: false, groupExceptions: [], isGrouped: true, sort: 'count' }
+export const DEFAULT_LAYOUT: LensLayout = { folded: ['tools'], groupsOpen: false, groupExceptions: [], isGrouped: true, sort: 'count', crewSort: 'progress' }
 export const DEFAULT_VIEW: LensView = { ...DEFAULT_LAYOUT, filter: '', toggledAt: {}, layoutAt: 0 }
 
-const SECTIONS: LensSection[] = ['todo', 'skills', 'tools']
+const SECTIONS: LensSection[] = ['todo', 'crew', 'skills', 'tools']
 const SORTS: LensSort[] = ['count', 'recent', 'name']
+const CREW_SORTS: LensCrewSort[] = ['progress', 'name']
 
 /** What of a view is kept across sessions. */
 export const layoutOf = (v: LensView): LensLayout => ({
@@ -18,6 +20,7 @@ export const layoutOf = (v: LensView): LensLayout => ({
   groupExceptions: v.groupExceptions,
   isGrouped: v.isGrouped,
   sort: v.sort,
+  crewSort: v.crewSort,
 })
 
 /** A kept layout as the store hands it back, each field checked; the default where one is missing or wrong. */
@@ -30,6 +33,7 @@ export function parseLayout(raw: unknown): LensLayout {
     groupExceptions: strings(o.groupExceptions) ?? [],
     isGrouped: typeof o.isGrouped === 'boolean' ? o.isGrouped : DEFAULT_LAYOUT.isGrouped,
     sort: SORTS.includes(o.sort as LensSort) ? (o.sort as LensSort) : DEFAULT_LAYOUT.sort,
+    crewSort: CREW_SORTS.includes(o.crewSort as LensCrewSort) ? (o.crewSort as LensCrewSort) : DEFAULT_LAYOUT.crewSort,
   }
 }
 
@@ -256,12 +260,20 @@ export const skillList = (skills: Record<string, LensSkill>): LensSkill[] =>
   Object.values(skills).sort((a, b) => b.count - a.count || Number(b.isAlways) - Number(a.isAlways) || a.name.localeCompare(b.name))
 
 /**
- * The order of every list the pane can show, by list key: `skills`, `flat`, and `g:<group>` for each
- * server's tools. Unfiltered, so typing in the filter is never taken for a change of order.
+ * The order of every list the pane can show, by list key: `crew` (both halves, split by the base mark),
+ * `skills`, `flat`, and `g:<group>` for each server's tools. Unfiltered, so typing in the filter is never
+ * taken for a change of order.
  */
-export function listOrders(tools: Record<string, LensTool>, skills: Record<string, LensSkill>, servers: Record<string, string>, sort: LensSort): Record<string, string[]> {
+export function listOrders(
+  tools: Record<string, LensTool>,
+  skills: Record<string, LensSkill>,
+  servers: Record<string, string>,
+  sort: LensSort,
+  crew: Record<string, LensCrab> = {},
+  crewSort: LensCrewSort = 'progress',
+): Record<string, string[]> {
   const rows = toolRows(tools, servers, sort, '')
-  const out: Record<string, string[]> = { skills: skillList(skills).map(s => s.name), flat: rows.map(r => r.name) }
+  const out: Record<string, string[]> = { crew: crewOrder(crew, crewSort), skills: skillList(skills).map(s => s.name), flat: rows.map(r => r.name) }
   for (const g of toolGroups(rows, sort)) out[`g:${g.key}`] = g.rows.map(r => r.name)
   return out
 }

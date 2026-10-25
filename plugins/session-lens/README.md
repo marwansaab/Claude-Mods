@@ -1,14 +1,17 @@
 # session-lens
 
-A pane that shows what this session is doing and has used, in three sections that open and close on their own:
+A pane that shows what this session is doing and has used, in four sections that open and close on their own:
 
 1. **To-do**: Claude's current task list. Each step is marked ○ pending, ● in progress (bold, in its "doing now" wording) or ✓ done (struck through). The header shows a count like "2 of 5", and a bar shows how far along the list is.
-2. **Skills**: each skill used, shown as `/name` with a use count. Skills a memory file pulls in at start (a CLAUDE.md import) are tagged **always loaded**.
-3. **Tools**: each tool used, with a use count. Tools are grouped by their MCP server or connector, with the built-in tools in a group of their own, and can be listed flat instead. Sort by **Most used**, **Recent** or **A–Z**, and type in the filter to narrow the list. Calls that failed are counted and marked in red.
+2. **Crew**: each subagent of the session, played by a crab. The crabs **at work** show their name and role, task, what they are doing now, and progress: from the agent's own to-do list when it keeps one, else an estimate that only a finished crab completes. The ones **back at base** show how their run ended (done, failed or stopped) and how long it took. Sort by **Progress** (the default) or **A–Z**.
+3. **Skills**: each skill used, shown as `/name` with a use count. Skills a memory file pulls in at start (a CLAUDE.md import) are tagged **always loaded**.
+4. **Tools**: each tool used, with a use count. Tools are grouped by their MCP server or connector, with the built-in tools in a group of their own, and can be listed flat instead. Sort by **Most used**, **Recent** or **A–Z**, and type in the filter to narrow the list. Calls that failed are counted and marked in red.
 
 The counts are for this session only: only tools and skills that were actually used appear. Calls made by subagents count too. The to-do list follows the main conversation only. Your layout (which sections and groups are open, grouped or flat, the sort) is kept for your next session.
 
-In the desktop app the rows are animated drawings. A step that is ticked off draws its check and strike-through. The step in progress pulses, with a sheen across its text. A tool or skill used for the first time flies into its list from the bottom. One that changes place, because its count passed another's or you changed the sort, flies to its new spot past the others, lit as it lands. Tool bars grow, and a count bumps when it goes up. Each animation plays once, when its row changes; the rest of the pane stays still. The terminal draws the same sections in text.
+In the desktop app the rows are animated drawings. A step that is ticked off draws its check and strike-through. The step in progress pulses, with a sheen across its text. A tool or skill used for the first time flies into its list from the bottom. One that changes place, because its count passed another's or you changed the sort, flies to its new spot past the others, lit as it lands. Tool bars grow, and a count bumps when it goes up.
+
+The crabs are drawn in vector, each character in its own colour with a small mark of its role: a bandana, a cap, a tricorn, glasses and so on. A crab at work scuttles, snips its claws and blinks. A thinking crab has dots pulsing above it, and one left without a call for a while taps a foot. A crab that finishes cheers with a hop and sparkles and flies down from **At work** into **Back at base**, lit as it lands. A failed crab sees stars, and a stopped one falls asleep. A new crab flies in at the foot of **At work**, and one whose place changes, by progress or by your choice of sort, flies to it. Each animation plays once, when its row changes; the rest of the pane stays still. The terminal draws the same sections in text.
 
 ## Install
 
@@ -30,12 +33,13 @@ In the desktop app the pane also opens by itself the first time a session uses a
 
 ## The pane
 
-The first time, **To-do** and **Skills** are open and **Tools** is closed, showing only its summary ("12 tools · 80 calls"). Open it to see the tools grouped by server, sorted by **Most used**, with every server collapsed. A section with nothing in it yet shows only its header.
+The first time, **To-do**, **Crew** and **Skills** are open and **Tools** is closed, showing only its summary ("12 tools · 80 calls"). Open it to see the tools grouped by server, sorted by **Most used**, with every server collapsed. A section with nothing in it yet shows only its header.
 
-- Press a section's arrow or title (**▾ To-do**, **▾ Skills**, **▸ Tools**) to close or open that section.
+- Press a section's arrow or title (**▾ To-do**, **▾ Crew**, **▾ Skills**, **▸ Tools**) to close or open that section.
+- In **Crew**, **Progress** and **A–Z** order the crabs, in both lists.
 - In **Tools**, press a server's name to open or close that group. **⊞ Expand all** / **⊟ Collapse all** turns every group at once, and servers that show up later start the way you last chose. **By server** and **All tools** switch between grouped and flat. In the flat list each tool shows its server beside its name.
 - While the filter holds text, every group that has a match is shown open. **✕ Clear** empties the filter.
-- What you change is kept for your next session: open and closed sections and groups, grouped or flat, and the sort. The filter always starts empty.
+- What you change is kept for your next session: open and closed sections and groups, grouped or flat, and both sorts. The filter always starts empty.
 
 ## Settings
 
@@ -47,6 +51,7 @@ The first time, **To-do** and **Skills** are open and **Tools** is closed, showi
 
 - A `tool.call` hook lets each call run, then counts it unless it was denied. It never changes the call, and a failure inside it is swallowed.
 - The to-do list is rebuilt from the plan tools the main conversation calls: `TodoWrite`, `TaskCreate` and `TaskUpdate`, and the desktop app's own task list (`update_plan`, with `advance`, `done` and `start`). The desktop app's closing `wrap_up` call ticks every step off.
+- The crew comes from the subagents' own events. `agent.spawn` casts a crab by agent type: `general-purpose` is a Deckhand, `Explore` a Scout, `Plan` a Navigator, `claude-code-guide` a Professor, `statusline-setup` a Signaller and `fork` an Understudy. Any other type is always dealt the same one of the Cook, Sleuth, Wizard and Diver. A subagent's `turn.step` sets its crab thinking, its `tool.call`s say what it is doing and feed its to-do progress, and its `turn.complete` says how the run ended. While a crab works, the pane is redrawn every 5 s so a crab left without a call is drawn waiting. The cast and the progress estimate are adapted from this repository's [crab-crew](../crab-crew) mod.
 - A `skill.prompt` hook counts each skill as it is expanded for the model, whether typed as `/name`, called through the Skill tool, or preloaded.
 - Group names come from the session's context breakdown (`$.session.usage({ breakdown: 'summary' })`). It gives the name `/mcp` lists for each server, so a claude.ai connector shows its name rather than its id. The same breakdown names the skills loaded through memory files. It is read when the session starts, when `/lens` opens the pane, and when a tool from a new server is first called.
 - A resumed session's earlier calls are counted once, from its transcript. A `/clear` starts the counts over and keeps the pane's layout.
@@ -56,6 +61,7 @@ The first time, **To-do** and **Skills** are open and **Tools** is closed, showi
 
 ## Limits
 
+- The crew starts empty in a resumed session: crabs come only from subagents that set out in it. It keeps the 40 latest crabs.
 - Tool bars use a log scale that fills at 50 calls, so a row's bar depends on its own count alone. Compare the numbers rather than the bar lengths.
 - A connector whose server name the context breakdown does not list shows as `Connector` plus the first characters of its id.
 - A skill typed as `/name` in a resumed session's earlier turns is not counted; skills called through the Skill tool are.
