@@ -11,7 +11,7 @@
     {
       "name": "crab-crew",
       "source": "./plugins/crab-crew",
-      "description": "A crew panel for standard subagents: each agent type is a crab character with its own role, look and lines, animated by its status and progress."
+      "description": "A crew panel for standard subagents (/crew): each agent type is a crab character with its own role, look and lines, animated by its status and progress."
     },
     {
       "name": "obsidian-cli-mcp-tool-stats",
@@ -26,7 +26,7 @@
     {
       "name": "session-lens",
       "source": "./plugins/session-lens",
-      "description": "A session lens pane (/lens): Claude's to-do list, the skills and the tools this session used, each section folding on its own; tools grouped by server or listed flat, sorted and filtered, with animated rows on the desktop."
+      "description": "A session lens pane (/lens): Claude's to-do list, its crew of subagents as animated crabs with a progress band above the prompt, and the skills and tools this session used, each section folding on its own. Replaces crab-crew: disable or don't install crab-crew alongside it."
     }
   ]
 }

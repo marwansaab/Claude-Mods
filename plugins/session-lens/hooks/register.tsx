@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { LensSection, LensSort, LensView } from '../types'
+import type { LensActivity, LensCaptain, LensCrab, LensSection, LensSort, LensView } from '../types'
+import { LINGER_MS, activityOf, characterKeyOf, crewNameOf, detailOf, outcomeOf, todoPatch, withChange } from './crew'
 import {
   DEFAULT_VIEW,
   EMPTY_PLAN,
@@ -18,7 +19,7 @@ import {
   splitTool,
   viewOf,
 } from './track'
-import { paneView } from './view'
+import { bandView, paneView } from './view'
 
 const PLUGIN = 'session-lens'
 const PANE = PLUGIN
@@ -37,6 +38,40 @@ const isSeeded = atom({ plugin: 'session-lens', key: 'isSeeded' } as const, fals
 const isAutoOpened = atom({ plugin: 'session-lens', key: 'isAutoOpened' } as const, false)
 const isLayoutLoaded = atom({ plugin: 'session-lens', key: 'isLayoutLoaded' } as const, false)
 const moves = atom({ plugin: 'session-lens', key: 'moves' } as const, {})
+const crew = atom({ plugin: 'session-lens', key: 'crew' } as const, {} as Record<string, LensCrab>)
+const crewTick = atom({ plugin: 'session-lens', key: 'crewTick' } as const, 0)
+const crewBandSince = atom({ plugin: 'session-lens', key: 'crewBandSince' } as const, 0)
+const IDLE: LensCaptain = { isBusy: false, activity: 'other', detail: '', lastActiveAt: 0 }
+const captain = atom({ plugin: 'session-lens', key: 'captain' } as const, IDLE)
+const raceSince = atom({ plugin: 'session-lens', key: 'raceSince' } as const, 0)
+const planRows = atom({ plugin: 'session-lens', key: 'planRows' } as const, [] as string[])
+
+/** The plan tools whose rows the transcript draws: the lens's To-do shows the same list. */
+const ROW_TOOLS = new Set(['TodoWrite', 'TaskCreate', 'TaskUpdate'])
+const MAX_PLAN_ROWS = 300
+
+/** Whether this call's list is in the lens in front of the person: one of the main conversation's plan calls, with the pane shown and To-do unfolded. */
+async function isPlanInLens($: EngineInterface, tool: string, id: string): Promise<boolean> {
+  if (!ROW_TOOLS.has(tool) || !(await read($, planRows)).includes(id)) return false
+  if (viewOf(await read($, view)).folded.includes('todo')) return false
+  return (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)
+}
+
+/** Notes a row the lens may hide: one of the main conversation's plan calls. */
+async function notePlanRow($: EngineInterface, tool: string, id: string | undefined): Promise<void> {
+  if (!id || !ROW_TOOLS.has(tool)) return
+  await update($, planRows, cur => (cur.includes(id) ? cur : [...cur, id].slice(-MAX_PLAN_ROWS)))
+}
+
+/** The captain is the main thread: what it is doing now, or that it is waiting for you. */
+async function setCaptain($: EngineInterface, isBusy: boolean, activity: LensActivity, detail: string): Promise<void> {
+  const at = await $.clock.now()
+  await update($, captain, () => ({ isBusy, activity, detail, lastActiveAt: at }))
+}
+
+/** How often the pane is redrawn while a crab works, so one left without a call is drawn waiting. */
+const CREW_TICK_MS = 5000
+const MAX_CREW = 40
 
 /** A little past the longest animation a change sets off: a staggered bar's growth, or a flight and its glow. */
 const SETTLE_MS = 1600
@@ -70,8 +105,22 @@ async function safely(work: () => Promise<unknown>): Promise<void> {
  */
 async function noteMoves($: EngineInterface): Promise<void> {
   const at = await $.clock.now()
-  const orders = listOrders(await read($, tools), await read($, skills), await read($, servers), viewOf(await read($, view)).sort)
+  const v = viewOf(await read($, view))
+  const orders = listOrders(await read($, tools), await read($, skills), await read($, servers), v.sort, await read($, crew), at, await read($, raceSince))
   await update($, moves, cur => movesAfter(cur, orders, at) ?? cur)
+}
+
+/** Changes one crab by its agent id; its progress bar then grows from where it was. */
+async function touchCrab($: EngineInterface, agentId: string, patch: (m: LensCrab) => Partial<LensCrab>): Promise<boolean> {
+  const at = await $.clock.now()
+  let found = false
+  await update($, crew, all => {
+    const m = Object.values(all).find(c => c.agentId === agentId)
+    if (!m) return all
+    found = true
+    return { ...all, [m.id]: withChange(m, patch(m), at) }
+  })
+  return found
 }
 
 /**
@@ -101,6 +150,8 @@ async function openPane($: EngineInterface): Promise<void> {
     return { ...full, toggledAt: { ...full.toggledAt, pane: at } }
   })
   await $.ui.open({ id: PANE, title: TITLE })
+  // The plan's rows in the transcript go as the To-do shows beside them.
+  $.ui.invalidate('ui.render')
   settle($)
   await safely(() => $.store.set(CLOSED_KEY, false))
 }
@@ -139,7 +190,10 @@ async function seed($: EngineInterface): Promise<void> {
       await update($, tools, cur => countTool(cur, u.tool, u.isError === true, stamp))
       if (u.tool === 'Skill' && typeof u.input.skill === 'string' && u.input.skill)
         await update($, skills, cur => countSkill(cur, String(u.input.skill).replace(/^\//, ''), stamp))
-      if (PLAN_TOOLS.has(u.tool) && u.isError !== true) await update($, plan, cur => planAfter(cur, u.tool, u.input, u.result, stamp) ?? cur)
+      if (PLAN_TOOLS.has(u.tool) && u.isError !== true) {
+        await update($, plan, cur => planAfter(cur, u.tool, u.input, u.result, stamp) ?? cur)
+        await notePlanRow($, u.tool, u.tool_use_id)
+      }
     }
   }  // The order the history left, noted so the next change flies from it.
   await noteMoves($)
@@ -150,12 +204,25 @@ async function startOver($: EngineInterface): Promise<void> {
   await update($, plan, () => EMPTY_PLAN)
   await update($, tools, () => ({}))
   await update($, skills, () => ({}))
+  await update($, crew, () => ({}))
   await update($, isSeeded, () => true)
   await readContext($)
 }
 
+/** Opens the lens at its crew: the pane, with the Crew section unfolded if it was folded. */
+async function openCrew($: EngineInterface): Promise<void> {
+  const at = await $.clock.now()
+  await update($, view, v => {
+    const full = viewOf(v)
+    return full.folded.includes('crew') ? { ...full, folded: full.folded.filter(s => s !== 'crew'), toggledAt: { ...full.toggledAt, crew: at } } : full
+  })
+  await openPane($)
+}
+
 export const register: Register = (on, options) => {
   const isAutoOpenOn = options.autoOpen !== false
+  const isBandOn = options.crewBand !== false
+  const isHideRowsOn = options.hidePlanRows !== false
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -168,13 +235,139 @@ export const register: Register = (on, options) => {
     await safely(() => loadLayout($))
     void safely(() => seed($))
     void safely(() => readContext($))
+    // While a crab works, a redraw now and then: one left without a call for a while is drawn waiting.
+    $.clock.every(CREW_TICK_MS, () => {
+      void safely(async () => {
+        if (!Object.values(await read($, crew)).some(m => m.status === 'running')) return
+        const at = await $.clock.now()
+        await update($, crewTick, () => at)
+      })
+    })
     return started
+  })
+
+  // A subagent sets out: a crab joins the crew, cast by its agent type, and flies in at the foot of the working list.
+  on('agent.spawn', async ($, e, next) => {
+    const started = await next(e)
+    await safely(async () => {
+      if (started.deny !== undefined) return
+      const at = await $.clock.now()
+      const character = characterKeyOf(e.subagentType)
+      // No one at work: this crab starts a new race, and the crabs of the last one leave the lists.
+      if (!Object.values(await read($, crew)).some(m => m.status === 'running')) await update($, raceSince, () => at)
+      await update($, crew, all => {
+        const list = Object.values(all)
+        const m: LensCrab = {
+          id: started.agentId ?? e.tool_use_id,
+          agentId: started.agentId,
+          type: e.subagentType,
+          character,
+          name: crewNameOf(character, list),
+          description: e.description,
+          status: 'running',
+          startedAt: at,
+          lastActiveAt: at,
+          activity: 'start',
+          detail: '',
+          toolCalls: 0,
+          errors: 0,
+          progressBefore: 0,
+          progressAt: at,
+        }
+        // The oldest crab back at base leaves first once the crew is full.
+        const kept = list.length < MAX_CREW ? list : list.filter(c => c !== list.filter(o => o.status !== 'running').sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0))[0])
+        return Object.fromEntries([...kept, m].map(c => [c.id, c]))
+      })
+      await noteMoves($)
+      settle($)
+      await autoOpen($, isAutoOpenOn)
+    })
+    return started
+  }).catch(($, e, next) => next(e))
+
+  // Each model request of a subagent: its crab is thinking.
+  on('turn.step', async function* ($, e, next) {
+    const agentId = e.agentId
+    await safely(async () => {
+      if (!agentId) return setCaptain($, true, 'think', '')
+      const at = await $.clock.now()
+      await touchCrab($, agentId, () => ({ activity: 'think', detail: '', lastActiveAt: at }))
+    })
+    return yield* next(e)
+  })
+
+  // A subagent's run ends: its crab is done, failed or stopped. One that is done walks past its flag and
+  // stands there a moment, then flies to the top of the crabs that reported back; the others fly there now.
+  // The main conversation's turn ending puts the captain off watch until your next prompt.
+  on('turn.complete', async ($, e, next) => {
+    const agentId = e.agentId
+    await safely(async () => {
+      if (!agentId) return setCaptain($, false, 'other', '')
+      const at = await $.clock.now()
+      const status = outcomeOf(e.reason)
+      if (!(await touchCrab($, agentId, () => ({ status, endedAt: at, lastActiveAt: at })))) return
+      await noteMoves($)
+      settle($)
+      if (status === 'done')
+        $.clock.after(LINGER_MS + 50, () => {
+          void safely(async () => {
+            await noteMoves($)
+            settle($)
+          })
+        })
+    })
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // A new prompt with no one out: the band clears, and comes back with the next crew to set out.
+  on('prompt.submit', async ($, e, next) => {
+    await safely(async () => {
+      if (Object.values(await read($, crew)).some(m => m.status === 'running')) return
+      const at = await $.clock.now()
+      await update($, crewBandSince, () => at)
+    })
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // The crew band above the prompt: the crabs out since the last prompt, and how far along they are,
+  // drawn above whatever other mods put there.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (!isBandOn || e.props.hasSurvey) return next(e)
+    const since = await read($, crewBandSince)
+    const all = Object.values(await read($, crew))
+    const shown = all.filter(m => m.startedAt > since || (m.endedAt ?? -1) > since).sort((a, b) => a.startedAt - b.startedAt)
+    if (!shown.length) return next(e)
+    const ui = $.ui.resolve(e)
+    const ours = bandView({
+      ui,
+      isPictured: e.surface !== 'terminal' && 'Svg' in ui,
+      columns: Math.max(40, e.props.bodyColumns || 100),
+      shown,
+      now: Math.max(await $.clock.now(), await read($, crewTick)),
+      openCrew: () => void safely(() => openCrew($)),
+      dismiss: () =>
+        void safely(async () => {
+          const at = await $.clock.now()
+          await update($, crewBandSince, () => at)
+        }),
+    })
+    // The band is shared by every mod: ours goes first, and what the others draw stays under it.
+    const { Box } = ui
+    const others = await next(e)
+    return (
+      <Box flexDirection="column">
+        {ours}
+        {others}
+      </Box>
+    )
   })
 
   // The person's own close is remembered, so the next session does not open the pane by itself.
   on('ui.close', async ($, e, next) => {
     const out = await next(e)
     if (e.id === PANE && e.origin.kind === 'person') await safely(() => $.store.set(CLOSED_KEY, true))
+    // The plan's rows in the transcript come back with the pane gone.
+    if (e.id === PANE) await safely(async () => $.ui.invalidate('ui.render'))
     return out
   }).catch(($, e, next) => next(e))
 
@@ -197,8 +390,27 @@ export const register: Register = (on, options) => {
 
   // Every tool call, the main conversation's and each subagent's: the call runs first, then it is counted.
   on('tool.call', async ($, e, next) => {
+    // A subagent's call: its crab is doing this now, and its own to-do list may move its progress.
+    const agentId = e.agentId
+    if (!agentId) await safely(() => setCaptain($, true, activityOf(String(e.tool)), detailOf(e as unknown as Record<string, unknown>)))
+    if (!agentId) await safely(() => notePlanRow($, String(e.tool), e.tool_use_id))
+    if (agentId)
+      await safely(async () => {
+        const tool = String(e.tool)
+        const input = e as unknown as Record<string, unknown>
+        const at = await $.clock.now()
+        const moved = await touchCrab($, agentId, m => ({
+          activity: activityOf(tool),
+          detail: detailOf(input),
+          lastActiveAt: at,
+          toolCalls: m.toolCalls + 1,
+          ...todoPatch(tool, input, m),
+        }))
+        if (moved) await noteMoves($)
+      })
     const ran = await next(e)
     await safely(async () => {
+      if (agentId && ran.isError === true) await touchCrab($, agentId, m => ({ errors: m.errors + 1 }))
       if (ran.deny !== undefined) return
       const at = await $.clock.now()
       const name = String(e.tool)
@@ -232,6 +444,17 @@ export const register: Register = (on, options) => {
     return out
   }).catch(($, e, next) => next(e))
 
+  // The main conversation's plan rows in the transcript, hidden while the lens shows the same list beside
+  // them. A row that errored, the ctrl+o transcript and a subagent's own list are drawn as ever.
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    const p = e.props
+    return isHideRowsOn && !p.isErrored && p.isExpanded !== true && (await isPlanInLens($, p.tool, p.tool_use_id)) ? <></> : next(e)
+  })
+  on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    const p = e.props
+    return isHideRowsOn && !p.isErrored && p.isExpanded !== true && (await isPlanInLens($, p.tool, p.tool_use_id)) ? <></> : next(e)
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
     // Each change is stamped, so what it sets moving moves once, from then, and not on later redraws,
@@ -260,7 +483,11 @@ export const register: Register = (on, options) => {
       servers: await read($, servers),
       view: viewOf(await read($, view)),
       moves: await read($, moves),
-      now: await $.clock.now(),
+      crew: await read($, crew),
+      captain: await read($, captain),
+      raceSince: await read($, raceSince),
+      // Read so the timer's tick redraws the pane; the drawing itself goes by the clock.
+      now: Math.max(await $.clock.now(), await read($, crewTick)),
       act: {
         toggleSection: (id: LensSection) => setView((v, at) => ({ folded: flip(v.folded, id), toggledAt: { ...v.toggledAt, [id]: at } })),
         toggleGroup: (key: string) => setView((v, at) => ({ groupExceptions: flip(v.groupExceptions, key), toggledAt: { ...v.toggledAt, [`g:${key}`]: at } })),
@@ -269,6 +496,7 @@ export const register: Register = (on, options) => {
         // A new sort is a change of order: the rows fly to their new places (noted by setView).
         setSort: (sort: LensSort) => setView(v => (v.sort === sort ? {} : { sort })),
         setFilter: (filter: string) => setView(() => ({ filter })),
+        toggleLegend: () => setView((v, at) => ({ isLegendOpen: !v.isLegendOpen, toggledAt: { ...v.toggledAt, legend: at } })),
       },
     })
   })

@@ -9,8 +9,8 @@ import type { ToolRow } from './track'
 
 export type Drawn = { svg: string; height: number; alt: string }
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-const f1 = (n: number) => n.toFixed(1)
+export const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+export const f1 = (n: number) => n.toFixed(1)
 
 const STYLE = `<style>
 svg{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -37,7 +37,7 @@ svg{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .halo{transform-box:fill-box;transform-origin:center;animation:sl-halo 1.8s ease-out infinite}
 .spin{transform-box:fill-box;transform-origin:center;animation:sl-spin 1.1s linear infinite}
 .sheenr{animation:sl-sheen 2.6s cubic-bezier(.4,0,.2,1) infinite}
-@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}.sheenr,.c-spark{display:none}}
 </style>`
 
 /** How long each one-shot animation runs, in seconds, as STYLE sets it. */
@@ -51,33 +51,40 @@ const PERIOD = { halo: 1.8, spin: 1.1, sheenr: 2.6 } as const
  * A one-shot animation pinned to `at` (ms), `wait` seconds after it: the class and delay that show it at
  * `now`, or nothing once it is over, or when `at` is unknown (0). Nothing then animates on a redraw.
  */
-function once(name: Once, at: number, now: number, wait = 0): { cls: string; style: string } {
-  if (!at) return { cls: '', style: '' }
+export type Anim = { cls: string; style: string }
+export const STILL: Anim = { cls: '', style: '' }
+
+/** A one-shot animation of class `cls`, `length` seconds long, pinned to `at`: as `once`, for any class. */
+export function onceOf(cls: string, length: number, at: number, now: number, wait = 0): Anim {
+  if (!at) return STILL
   const since = (now - at) / 1000 - wait
-  if (since >= LENGTH[name]) return { cls: '', style: '' }
-  return { cls: name, style: `animation-delay:${(-since).toFixed(3)}s;` }
+  if (since >= length) return STILL
+  return { cls, style: `animation-delay:${(-since).toFixed(3)}s;` }
 }
 
-/** A loop's class and delay, so it is at the same point of its cycle in every drawing made at `now`. */
-function loop(name: keyof typeof PERIOD, now: number): { cls: string; style: string } {
-  return { cls: name, style: `animation-delay:${(-((now / 1000) % PERIOD[name])).toFixed(3)}s;` }
-}
+/** A loop of class `cls`, `period` seconds long, at the same point of its cycle in every drawing made at `now`. */
+export const loopOf = (cls: string, period: number, now: number): Anim => ({ cls, style: `animation-delay:${(-((now / 1000) % period)).toFixed(3)}s;` })
+
+export const once = (name: Once, at: number, now: number, wait = 0): Anim => onceOf(name, LENGTH[name], at, now, wait)
+
+const loop = (name: keyof typeof PERIOD, now: number): Anim => loopOf(name, PERIOD[name], now)
 
 /** `class` and `style` attributes for an element: its own classes, then any animation's. */
-function attrs(base: string, ...anims: { cls: string; style: string }[]): string {
+export function attrs(base: string, ...anims: { cls: string; style: string }[]): string {
   const cls = [base, ...anims.map(a => a.cls)].filter(Boolean).join(' ')
   const style = anims.map(a => a.style).join('')
   return `${cls ? ` class="${cls}"` : ''}${style ? ` style="${style}"` : ''}`
 }
 
 /** A row comes in a little after the one above it. */
-const stagger = (index: number) => Math.min(index, 8) * 0.04
+export const stagger = (index: number) => Math.min(index, 8) * 0.04
 
-const doc = (w: number, h: number, body: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${STYLE}${body}</svg>`
+/** An SVG document: the shared style, then `extra` (a drawing's own classes), then the body. */
+export const doc = (w: number, h: number, body: string, extra = '') =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${STYLE}${extra}${body}</svg>`
 
 /** About how wide a run of text is, in pixels, at a font size: enough to wrap and cut by. */
-const textWidth = (s: string, size: number) => s.length * size * 0.56
+export const textWidth = (s: string, size: number) => s.length * size * 0.56
 
 /** Cuts a text to fit a width, ending it with an ellipsis. */
 export function fit(s: string, width: number, size: number): string {
@@ -126,7 +133,7 @@ export function hueOf(group: string): string {
 }
 
 /** A lighter tone of a hex colour, for the far end of a gradient. */
-function lighter(hex: string, by = 0.35): string {
+export function lighter(hex: string, by = 0.35): string {
   const n = parseInt(hex.slice(1), 16)
   const mix = (c: number) => Math.round(c + (255 - c) * by)
   const r = mix((n >> 16) & 255)
@@ -135,7 +142,7 @@ function lighter(hex: string, by = 0.35): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`
 }
 
-const gradient = (id: string, from: string, to: string) =>
+export const gradient = (id: string, from: string, to: string) =>
   `<defs><linearGradient id="${id}" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs>`
 
 /** Seconds a bar takes to grow. */
@@ -145,7 +152,7 @@ const GROW = 0.9
  * A bar filled to `to` (0 to 1) of its track. Within GROW seconds of `at` it is still growing from `from`;
  * after that it is drawn full and still. A sheen runs along it while `isLive`.
  */
-function bar(id: string, x: number, y: number, w: number, h: number, from: number, to: number, fill: string, isLive: boolean, at: number, now: number, wait = 0): string {
+export function bar(id: string, x: number, y: number, w: number, h: number, from: number, to: number, fill: string, isLive: boolean, at: number, now: number, wait = 0): string {
   const full = Math.max(to > 0 ? h : 0, w * Math.min(1, to))
   const since = at ? (now - at) / 1000 - wait : GROW
   let grow = ''

@@ -2,8 +2,10 @@
 // The desktop draws each row as an animated SVG; the terminal draws the same rows in text.
 import type { Elements, RenderElement } from 'claude-code'
 
-import type { LensMove, LensPlan, LensSection, LensSkill, LensSort, LensTool, LensView } from '../types'
+import type { LensCaptain, LensCrab, LensMove, LensPlan, LensSection, LensSkill, LensSort, LensTool, LensView } from '../types'
 import { ACCENT, barShare, groupTileSvg, groupTotalSvg, hueOf, skillListSvg, stepSvg, todoProgressSvg, toolListSvg } from './art'
+import { bandSvg, beachSvg, crewListSvg, legendSvg } from './crabs'
+import { CAPTAIN_NAME, captainQuip, characterOf, crewLists, crewSummary, duration, isOnBeach, legendOf, progressLabel, progressOf, quipOf } from './crew'
 import { doneOf, isGroupOpen, plural, skillList, toolGroups, toolRows } from './track'
 import type { ToolGroup, ToolRow } from './track'
 
@@ -17,6 +19,8 @@ export type Actions = {
   setGrouped: (isGrouped: boolean) => void
   setSort: (sort: LensSort) => void
   setFilter: (text: string) => void
+  /** Opens or closes the crew's who's-who legend. */
+  toggleLegend: () => void
 }
 
 export type Ctx = {
@@ -32,6 +36,12 @@ export type Ctx = {
   view: LensView
   /** Each list's last change of order, so its rows fly to their new places once. */
   moves: Record<string, LensMove>
+  /** This session's subagents, each played by a crab. */
+  crew: Record<string, LensCrab>
+  /** The main thread, played by the captain. */
+  captain: LensCaptain
+  /** When the current race began: the lists show its crabs alone. */
+  raceSince: number
   /** When this drawing is made: each animation is drawn as it stands at this moment. */
   now: number
   act: Actions
@@ -136,6 +146,152 @@ function todoSection(ctx: Ctx): RenderElement {
         })}
       </Box>,
     ]
+  })
+}
+
+// ---------- crew ----------
+
+const OUTCOME: Record<LensCrab['status'], { glyph: string; color: string }> = {
+  running: { glyph: '●', color: ACCENT },
+  done: { glyph: '✓', color: GOOD },
+  failed: { glyph: '✗', color: '#e5484d' },
+  stopped: { glyph: '■', color: '#8a8984' },
+}
+
+/**
+ * One crab in the terminal: its mark, name (in its colour) and role, its progress or how its run ended,
+ * then its task and its line. The right-hand column keeps its width; a narrow terminal cuts the name and
+ * the line, not the bar or the task.
+ */
+function crabLine(ctx: Ctx, m: LensCrab): RenderElement {
+  const { Box, Text } = ctx.ui
+  const c = characterOf(m.character)
+  const o = OUTCOME[m.status]
+  const bar = cells(progressOf(m).value, 8)
+  return (
+    <Box key={`crab-${m.id}`} flexDirection="column">
+      <Box flexDirection="row" justifyContent="space-between" gap={1}>
+        <Box flexShrink={1} flexGrow={1} overflow="hidden">
+          <Text wrap="truncate-end">
+            <Text color={o.color}>{`${o.glyph} `}</Text>
+            <Text bold color={c.color}>
+              {m.name}
+            </Text>
+            <Text dimColor>{` the ${c.role}`}</Text>
+          </Text>
+        </Box>
+        <Box flexShrink={0}>
+          {isOnBeach(m, ctx.now) ? (
+            <Text>
+              <Text color={c.color}>{bar.on}</Text>
+              <Text dimColor>{bar.off}</Text>
+              <Text bold>{` ${progressLabel(m)}`}</Text>
+            </Text>
+          ) : (
+            <Text dimColor>{`${m.status} · ${duration((m.endedAt ?? ctx.now) - m.startedAt)}`}</Text>
+          )}
+        </Box>
+      </Box>
+      <Box paddingLeft={2}>
+        <Text dimColor wrap="truncate-end">
+          {m.description}
+          <Text italic>{`  “${quipOf(m, ctx.now)}”`}</Text>
+        </Text>
+      </Box>
+    </Box>
+  )
+}
+
+/** A list inside the crew: a title that folds it, like a section's, and its count. */
+function crewListHead(ctx: Ctx, id: 'crewWork' | 'crewBase', label: string, count: number): RenderElement {
+  const { Text, Button } = ctx.ui
+  const isOpen = !ctx.view.folded.includes(id)
+  return (
+    <Button key={`sec-${id}`} plain onPress={() => ctx.act.toggleSection(id)}>
+      <Text color={ACCENT}>{isOpen ? '▾ ' : '▸ '}</Text>
+      <Text bold dimColor>
+        {label}
+      </Text>
+      <Text dimColor>{`  ${count}`}</Text>
+    </Button>
+  )
+}
+
+/**
+ * The crew: the beach, where the captain always is, with the race's crabs at work; then the crabs at work,
+ * a row each; then the crabs that reported back, the latest first. The two lists fold on their own.
+ */
+function crewSection(ctx: Ctx): RenderElement {
+  const { Box, Text, Button } = ctx.ui
+  const { working, base } = crewLists(ctx.crew, ctx.now, ctx.raceSince)
+  const summary = working.length + base.length ? crewSummary(ctx.crew, ctx.raceSince) : ctx.captain.isBusy ? 'Captain at the helm' : 'Captain off watch'
+  const isLegendOpen = ctx.view.isLegendOpen
+  // The summary, and a ? that opens who's who: which character stands for which agent type.
+  const right = (
+    <Box flexDirection="row" gap={1} alignItems="center">
+      <Text dimColor>{summary}</Text>
+      <Button key="crew-legend" plain dimColor={!isLegendOpen} label={isLegendOpen ? '✕ who' : '? who'} onPress={() => ctx.act.toggleLegend()} />
+    </Box>
+  )
+  const legend = legendOf([...working, ...base])
+  const workOpen = !ctx.view.folded.includes('crewWork')
+  const baseOpen = !ctx.view.folded.includes('crewBase')
+  return section(ctx, 'crew', 'Crew', right, () => {
+    const rows: RenderElement[] = []
+    if (ctx.isPictured) {
+      const w = rowPixels(ctx.columns)
+      if (isLegendOpen) rows.push(picture(ctx, 'crew-legend-strip', legendSvg(w, legend, ctx.view.toggledAt.legend ?? 0, ctx.now), w)!)
+      const steps = ctx.plan.steps
+      const skipper = {
+        captain: ctx.captain,
+        done: doneOf(steps),
+        total: steps.length,
+        doneBefore: ctx.plan.doneBefore,
+        changedAt: ctx.plan.updatedAt,
+      }
+      rows.push(picture(ctx, 'crew-beach', beachSvg(w, working, ctx.moves.crew, sectionAt(ctx, 'crew'), ctx.now, skipper), w)!)
+      if (working.length) {
+        rows.push(crewListHead(ctx, 'crewWork', 'At work', working.length))
+        if (workOpen) rows.push(picture(ctx, 'crew-work', crewListSvg(w, 'work', working, ctx.moves.crew, latest(sectionAt(ctx, 'crew'), ctx.view.toggledAt.crewWork), ctx.now), w)!)
+      }
+      if (base.length) {
+        rows.push(crewListHead(ctx, 'crewBase', 'Reported back', base.length))
+        if (baseOpen) rows.push(picture(ctx, 'crew-base', crewListSvg(w, 'base', base, ctx.moves.crew, latest(sectionAt(ctx, 'crew'), ctx.view.toggledAt.crewBase), ctx.now), w)!)
+      }
+      return rows
+    }
+    if (isLegendOpen)
+      rows.push(
+        <Text key="crew-legend-strip" wrap="wrap">
+          {legend.map((e, i) => (
+            <Text key={`lg${i}`}>
+              <Text color={e.color}>{'● '}</Text>
+              <Text bold>{e.role}</Text>
+              <Text dimColor>{` ${e.note ?? e.types.join(', ')}${i < legend.length - 1 ? '   ' : ''}`}</Text>
+            </Text>
+          ))}
+        </Text>,
+      )
+    rows.push(
+      <Text key="crew-captain" wrap="truncate-end">
+        <Text color={ACCENT}>{ctx.captain.isBusy ? '(\\/)(°,,°)(\\/) ' : '(\\/)(-,,-)(\\/) '}</Text>
+        <Text bold>{CAPTAIN_NAME}</Text>
+        <Text dimColor>{` · ${captainQuip(ctx.captain)}`}</Text>
+      </Text>,
+    )
+    const group = (id: 'crewWork' | 'crewBase', label: string, list: LensCrab[], isOpen: boolean) =>
+      list.length ? (
+        <Box key={id} flexDirection="column">
+          {crewListHead(ctx, id, label, list.length)}
+          {isOpen ? (
+            <Box flexDirection="column" paddingLeft={1}>
+              {list.map(m => crabLine(ctx, m))}
+            </Box>
+          ) : null}
+        </Box>
+      ) : null
+    for (const g of [group('crewWork', 'At work', working, workOpen), group('crewBase', 'Reported back', base, baseOpen)]) if (g) rows.push(g)
+    return rows
   })
 }
 
@@ -306,8 +462,63 @@ export function paneView(ctx: Ctx): RenderElement {
   return (
     <Box flexDirection="column" gap={1}>
       {todoSection(ctx)}
+      {crewSection(ctx)}
       {skillsSection(ctx)}
       {toolsSection(ctx)}
+    </Box>
+  )
+}
+
+// ---------- the crew band above the prompt ----------
+
+export type BandCtx = {
+  ui: UI
+  isPictured: boolean
+  columns: number
+  /** The crabs the band shows: those that set out or came back since the last prompt. */
+  shown: LensCrab[]
+  now: number
+  /** Opens the lens at its crew; hides the band until the next crew sets out. */
+  openCrew: () => void
+  dismiss: () => void
+}
+
+/** The band: the crew's crabs, who is at work, and how far along they are, with the way to the lens. */
+export function bandView(b: BandCtx): RenderElement {
+  const { Box, Text, Button } = b.ui
+  const open = <Button key="lens-crew-open" plain label={`Crew ×${b.shown.length}`} onPress={b.openCrew} />
+  const dismiss = <Button key="lens-crew-dismiss" plain role="dismiss" label="✕" onPress={b.dismiss} />
+  if (b.isPictured && 'Svg' in b.ui) {
+    const { Svg } = b.ui
+    const w = Math.max(220, Math.min(1400, b.columns * 8 - 140))
+    const d = bandSvg(w, b.shown, b.now)
+    return (
+      <Box flexDirection="row" alignItems="center" gap={1}>
+        <Svg key="lens-band" source={d.svg} alt={d.alt} width={w} height={d.height} />
+        {open}
+        {dismiss}
+      </Box>
+    )
+  }
+  const working = b.shown.filter(m => m.status === 'running')
+  const mean = b.shown.reduce((s, m) => s + (m.status === 'running' ? progressOf(m).value : 1), 0) / Math.max(1, b.shown.length)
+  const bar = cells(mean, Math.max(6, Math.min(20, b.columns - 60)))
+  // Short, so the bar keeps its room: the first crab out, and how many more.
+  const who = working.length ? `${working[0]!.name}${working.length > 1 ? ` +${working.length - 1}` : ''} at work` : 'All back at base'
+  return (
+    <Box flexDirection="row" gap={1}>
+      <Text color={ACCENT}>{working.length > 1 ? '(°,,°)' : working.length ? '(\\/)(°,,°)(\\/)' : '\\(^,,^)/'}</Text>
+      <Text wrap="truncate-end">
+        {who}
+        <Text dimColor>{` · ${crewSummary(Object.fromEntries(b.shown.map(m => [m.id, m])))}`}</Text>
+      </Text>
+      <Text>
+        <Text color={working.length ? ACCENT : GOOD}>{bar.on}</Text>
+        <Text dimColor>{bar.off}</Text>
+        <Text bold>{` ${working.length ? '≈' : ''}${Math.round(mean * 100)}%`}</Text>
+      </Text>
+      {open}
+      {dismiss}
     </Box>
   )
 }

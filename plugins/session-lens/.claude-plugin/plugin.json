@@ -1,7 +1,7 @@
 {
   "name": "session-lens",
-  "version": "0.1.0",
-  "description": "A session lens pane (/lens): Claude's to-do list, the skills and the tools this session used, each section folding on its own; tools grouped by server or listed flat, sorted and filtered, with animated rows on the desktop.",
+  "version": "0.3.0",
+  "description": "A session lens pane (/lens): Claude's to-do list, its crew of subagents as animated crabs with a progress band above the prompt, and the skills and tools this session used, each section folding on its own. Replaces crab-crew: disable or don't install crab-crew alongside it.",
   "author": {
     "name": "Marwan Saab",
     "url": "https://github.com/marwansaab"
@@ -14,6 +14,8 @@
     "tasks",
     "skills",
     "tools",
+    "subagents",
+    "crabs",
     "mcp",
     "session",
     "panel"
@@ -24,6 +26,18 @@
       "type": "boolean",
       "title": "Open by itself",
       "description": "In the desktop app, open the lens the first time a session uses a tool or a skill",
+      "default": true
+    },
+    "crewBand": {
+      "type": "boolean",
+      "title": "Crew band above the prompt",
+      "description": "While subagents are out, show their crabs and how far along they are just above the prompt",
+      "default": true
+    },
+    "hidePlanRows": {
+      "type": "boolean",
+      "title": "Hide the plan's rows in the chat",
+      "description": "While the lens is open in front with To-do unfolded, hide the TodoWrite, TaskCreate and TaskUpdate rows in the transcript; ctrl+o still shows them",
       "default": true
     }
   }

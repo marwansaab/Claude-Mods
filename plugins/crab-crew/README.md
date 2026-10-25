@@ -6,7 +6,7 @@ It works with the **standard agents** (`general-purpose`, `Explore`, `Plan` and 
 
 ![The crew panel](docs/panel.png)
 
-## What you get
+## What it does
 
 - **The crew panel** (`/crew` toggles it). At the top is *Captain Clawd*, the main thread: at the helm while Claude works, asleep when it waits for you. Under the captain is one row per subagent:
   - who it is (*Pip the Scout*), its task, model, current action, tool calls, tokens and time;
@@ -17,7 +17,7 @@ It works with the **standard agents** (`general-purpose`, `Explore`, `Plan` and 
 
 ![The band above the prompt](docs/band.png)
 
-## The crew
+### The crew
 
 | Agent type | Character | Names | Trait | Prop |
 | --- | --- | --- | --- | --- |
@@ -31,7 +31,7 @@ It works with the **standard agents** (`general-purpose`, `Explore`, `Plan` and 
 
 A second crab of the same character takes the next name; after the last name the list starts again with *II* (*Pip II*).
 
-## How the crabs move
+### How the crabs move
 
 ![Every character in every pose](docs/poses.png)
 
@@ -48,7 +48,7 @@ A second crab of the same character takes the next name; after the last name the
 
 All motion is CSS and stops when the system asks for reduced motion. The terminal draws the classic ASCII crab `(\/)(°,,°)(\/)` on a text lane, with frames switched once a second.
 
-## Progress
+### Progress
 
 Standard agents don't report their progress, so the lane uses the best signal available:
 
@@ -81,7 +81,7 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 { "pluginConfigs": { "crab-crew": { "options": { "autoOpen": false, "showQuips": true } } } }
 ```
 
-| Option | Default | Effect |
+| Setting | Default | Effect |
 | --- | --- | --- |
 | `autoOpen` | `true` | Opens the panel the first time a subagent starts in a session. In a narrow terminal (under 144 columns) a pane that opens by itself waits until there is room; `/crew` always opens it. |
 | `showQuips` | `true` | Speech bubbles and lines in character. Off, the rows keep only the plain facts. |
@@ -101,7 +101,7 @@ The mod hooks the engine's own events, so the model does nothing special:
 
 Every hook only observes, and is written so that a failure inside the mod can never fail a tool call, a spawn or a turn.
 
-## Limits
+## Known limits
 
 - The estimate is an estimate: an agent that makes many quick calls reaches the flag area early and waits there until it finishes.
 - The function-hook API is early access; the mod was built against Claude Code 2.1.293.
