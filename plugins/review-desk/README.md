@@ -35,9 +35,9 @@ At the prompt of a Claude Code terminal session:
 
 Answer `y` to add the marketplace, then choose a scope. A mod installed this way also loads in the desktop app's Code tab.
 
-## Commands and tools
+## Commands
 
-| Name | What it does |
+| Command | Does |
 | --- | --- |
 | `/reviews` | Opens the review desk, or closes it when it is open |
 | `publish_review` (tool for Claude) | Puts a review on the desk. Claude is told to use it instead of building HTML review pages or asking many questions in chat |
@@ -48,12 +48,18 @@ To start, ask Claude something like *"put the open questions for this initiative
 
 ## Settings
 
-| Setting | Default | What it does |
+Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/settings.json`:
+
+```json
+{ "pluginConfigs": { "review-desk": { "options": { "folder": "Reviews", "autoOpen": true, "handOff": true, "selectableText": true } } } }
+```
+
+| Setting | Default | Effect |
 | --- | --- | --- |
-| Reviews folder | `Reviews` | The folder in the project, relative to its root, that holds `pending/` and `reviewed/` |
-| Open the desk when Claude publishes a review | on | Opens the panel on the new review, unless you are in the middle of another one |
-| Hand submitted reviews to Claude | on | On submit, queues a prompt asking Claude to apply the outcome |
-| Selectable text | on | On the desktop, draws card text so it can be selected; off draws it as the app's own text, with every link clickable but nothing selectable |
+| `folder` | `Reviews` | The folder in the project, relative to its root, that holds `pending/` and `reviewed/` |
+| `autoOpen` | `true` | Opens the panel on the new review, unless you are in the middle of another one |
+| `handOff` | `true` | On submit, queues a prompt asking Claude to apply the outcome |
+| `selectableText` | `true` | On the desktop, draws card text so it can be selected; off draws it as the app's own text, with every link clickable but nothing selectable |
 
 ## How it works
 
@@ -107,3 +113,7 @@ To start, ask Claude something like *"put the open questions for this initiative
 - **Text you type is saved when you press Enter or move on.** Typing and then closing the window straight away can lose the last field.
 - **Reviewed items are read-only.** To review something again, ask Claude to publish it again; the new review is filed separately.
 - **The function-hook plugin API is early access** and may change between Claude Code releases. Built and tested against Claude Code 2.1.296.
+
+## Licence
+
+MIT, see the repository's [LICENSE](../../LICENSE).
