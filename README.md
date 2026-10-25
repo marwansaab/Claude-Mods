@@ -11,6 +11,7 @@ This repository is also a plugin marketplace, so you can install any mod with on
 | [crab-crew](plugins/crab-crew) | A crew panel for subagents. Each agent type is played by a crab character with its own role, look and lines, animated by its status and progress. Works with the standard agents; no skills needed. |
 | [obsidian-cli-mcp-tool-stats](plugins/obsidian-cli-mcp-tool-stats) | Usage stats for the [obsidian-cli-mcp](https://github.com/marwansaab/obsidian-cli-mcp) server: calls, estimated tokens, errors and latency per tool, with hints on heavy results, repeat calls, error patterns and unused schemas. Kept across sessions. |
 | [review-desk](plugins/review-desk) | A review desk panel. Claude publishes open questions, decisions, findings, write plans, animated explainers and read-throughs; you answer, ask questions and submit inside Claude Code, and the outcome goes back to Claude to apply. |
+| [session-lens](plugins/session-lens) | A pane for the session in hand: Claude's to-do list, the skills and the tools it used, each section folding on its own. Tools are grouped by MCP server or listed flat, sorted and filtered. Animated rows on the desktop. |
 
 ## Install
 

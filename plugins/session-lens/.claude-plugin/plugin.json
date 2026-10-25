@@ -1,0 +1,30 @@
+{
+  "name": "session-lens",
+  "version": "0.1.0",
+  "description": "A session lens pane (/lens): Claude's to-do list, the skills and the tools this session used, each section folding on its own; tools grouped by server or listed flat, sorted and filtered, with animated rows on the desktop.",
+  "author": {
+    "name": "Marwan Saab",
+    "url": "https://github.com/marwansaab"
+  },
+  "homepage": "https://github.com/marwansaab/Claude-Mods/tree/main/plugins/session-lens",
+  "repository": "https://github.com/marwansaab/Claude-Mods",
+  "license": "MIT",
+  "keywords": [
+    "todo",
+    "tasks",
+    "skills",
+    "tools",
+    "mcp",
+    "session",
+    "panel"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoOpen": {
+      "type": "boolean",
+      "title": "Open by itself",
+      "description": "In the desktop app, open the lens the first time a session uses a tool or a skill",
+      "default": true
+    }
+  }
+}
