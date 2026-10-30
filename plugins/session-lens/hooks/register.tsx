@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { LensActivity, LensCaptain, LensCrab, LensSection, LensSort, LensView } from '../types'
+import type { LensActivity, LensCaptain, LensContext, LensCrab, LensSection, LensSort, LensView } from '../types'
 import { LINGER_MS, activityOf, characterKeyOf, crewNameOf, detailOf, outcomeOf, todoPatch, usageTokens, withChange } from './crew'
 import {
   DEFAULT_VIEW,
@@ -44,6 +44,16 @@ const crewBandSince = atom({ plugin: 'session-lens', key: 'crewBandSince' } as c
 const IDLE: LensCaptain = { isBusy: false, activity: 'other', detail: '', lastActiveAt: 0 }
 const captain = atom({ plugin: 'session-lens', key: 'captain' } as const, IDLE)
 const raceSince = atom({ plugin: 'session-lens', key: 'raceSince' } as const, 0)
+const context = atom({ plugin: 'session-lens', key: 'context' } as const, null as LensContext | null)
+
+/** Reads how full the context window is (free: no breakdown); the bar grows from the reading before. */
+async function readUsage($: EngineInterface): Promise<void> {
+  const c = (await $.session.usage()).context
+  if (c.tokens === undefined || !c.window) return
+  const tokens = c.tokens
+  const at = await $.clock.now()
+  await update($, context, cur => (cur && cur.tokens === tokens && cur.window === c.window ? cur : { tokens, window: c.window, before: cur?.tokens ?? 0, at }))
+}
 const planRows = atom({ plugin: 'session-lens', key: 'planRows' } as const, [] as string[])
 
 /** The plan tools whose rows the transcript draws: the lens's To-do shows the same list. */
@@ -207,6 +217,7 @@ async function startOver($: EngineInterface): Promise<void> {
   await update($, crew, () => ({}))
   await update($, isSeeded, () => true)
   await readContext($)
+  await readUsage($)
 }
 
 /** Opens the lens at its crew: the pane, with the Crew section unfolded if it was folded. */
@@ -234,6 +245,7 @@ export const register: Register = (on, options) => {
       }),
     )
     await safely(() => loadLayout($))
+    void safely(() => readUsage($))
     void safely(() => seed($))
     void safely(() => readContext($))
     // While a crab works, a redraw now and then: one left without a call for a while is drawn waiting.
@@ -298,6 +310,8 @@ export const register: Register = (on, options) => {
       await touchCrab($, agentId, () => ({ activity: 'think', detail: '', lastActiveAt: at }))
     })
     const result = yield* next(e)
+    // Each answered request of the main conversation moves the context meter.
+    if (!agentId) await safely(() => readUsage($))
     const usage = result.usage
     if (agentId && usage)
       await safely(() => touchCrab($, agentId, m => ({ model: usage.model || m.model, tokens: (m.tokens ?? 0) + usageTokens(usage), steps: (m.steps ?? 0) + 1 })))
@@ -401,6 +415,7 @@ export const register: Register = (on, options) => {
     }
     await openPane($)
     void safely(() => readContext($))
+    void safely(() => readUsage($))
     return { text: 'Session lens opened.' }
   }).catch(() => ({ text: 'The session lens could not open just now.' }))
 
@@ -501,6 +516,7 @@ export const register: Register = (on, options) => {
       moves: await read($, moves),
       crew: await read($, crew),
       captain: await read($, captain),
+      context: await read($, context),
       raceSince: await read($, raceSince),
       showQuips: isQuipsOn,
       // Read so the timer's tick redraws the pane; the drawing itself goes by the clock.

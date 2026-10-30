@@ -9,7 +9,7 @@ import { crewOrder } from './crew'
 export const DEFAULT_LAYOUT: LensLayout = { folded: ['tools'], groupsOpen: false, groupExceptions: [], isGrouped: true, sort: 'count', isLegendOpen: false }
 export const DEFAULT_VIEW: LensView = { ...DEFAULT_LAYOUT, filter: '', toggledAt: {}, layoutAt: 0 }
 
-const SECTIONS: LensSection[] = ['todo', 'crew', 'crewWork', 'crewBase', 'skills', 'tools']
+const SECTIONS: LensSection[] = ['context', 'todo', 'crew', 'crewWork', 'crewBase', 'skills', 'tools']
 const SORTS: LensSort[] = ['count', 'recent', 'name']
 
 /** What of a view is kept across sessions. */
@@ -293,3 +293,10 @@ export function movesAfter(moves: Record<string, LensMove>, orders: Record<strin
 }
 
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+/** A token count as the context meter reads it: `167.9k`, `1M`, `200k`. */
+export const contextSize = (n: number) =>
+  n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : String(Math.round(n))
+
+/** The share of the window in use, as a whole percentage. */
+export const contextPercent = (tokens: number, window: number) => Math.round((tokens / Math.max(1, window)) * 100)
