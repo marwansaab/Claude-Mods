@@ -2,11 +2,11 @@
 // The desktop draws each row as an animated SVG; the terminal draws the same rows in text.
 import type { Elements, RenderElement } from 'claude-code'
 
-import type { LensCaptain, LensCrab, LensMove, LensPlan, LensSection, LensSkill, LensSort, LensTool, LensView } from '../types'
-import { ACCENT, barShare, groupTileSvg, groupTotalSvg, hueOf, skillListSvg, stepSvg, todoProgressSvg, toolListSvg } from './art'
+import type { LensCaptain, LensContext, LensCrab, LensMove, LensPlan, LensSection, LensSkill, LensSort, LensTool, LensView } from '../types'
+import { ACCENT, barShare, contextSvg, groupTileSvg, groupTotalSvg, hueOf, skillListSvg, stepSvg, todoProgressSvg, toolListSvg } from './art'
 import { bandSvg, beachSvg, crewListSvg, legendSvg } from './crabs'
 import { CAPTAIN_NAME, captainQuip, characterOf, crabMeta, crewLists, crewSummary, duration, isOnBeach, legendOf, listTotals, progressLabel, progressOf, quipOf } from './crew'
-import { doneOf, isGroupOpen, plural, skillList, toolGroups, toolRows } from './track'
+import { contextPercent, contextSize, doneOf, isGroupOpen, plural, skillList, toolGroups, toolRows } from './track'
 import type { ToolGroup, ToolRow } from './track'
 
 type UI = Elements['terminal'] | Elements['desktop'] | Elements['vscode'] | Elements['mobile']
@@ -40,6 +40,8 @@ export type Ctx = {
   crew: Record<string, LensCrab>
   /** The main thread, played by the captain. */
   captain: LensCaptain
+  /** How full the context window is; null until the first reading. */
+  context: LensContext | null
   /** When the current race began: the lists show its crabs alone. */
   raceSince: number
   /** The crabs say their lines: bubbles on the beach, last lines in the lists (the `showQuips` setting). */
@@ -100,6 +102,33 @@ function section(ctx: Ctx, id: LensSection, title: string, right: RenderElement 
       {rows.length ? rows : null}
     </Box>
   )
+}
+
+// ---------- context ----------
+
+/** How full the context window is: tokens used of the window by the title, and a bar of the share used. */
+function contextSection(ctx: Ctx): RenderElement {
+  const { Box, Text } = ctx.ui
+  const c = ctx.context
+  const right = c ? `${contextSize(c.tokens)} / ${contextSize(c.window)}` : null
+  return section(ctx, 'context', 'Context', right, () => {
+    if (!c) return []
+    if (ctx.isPictured) {
+      const w = rowPixels(ctx.columns)
+      return [picture(ctx, 'context-bar', contextSvg(w, c.tokens, c.window, c.before, latest(c.at, sectionAt(ctx, 'context')), ctx.now), w)!]
+    }
+    const share = Math.min(1, c.tokens / Math.max(1, c.window))
+    const bar = cells(share, Math.max(8, ctx.columns - 16))
+    return [
+      <Box key="context-bar" flexDirection="row" gap={1}>
+        <Text>
+          <Text color={ACCENT}>{bar.on}</Text>
+          <Text dimColor>{bar.off}</Text>
+        </Text>
+        <Text dimColor>{`${contextPercent(c.tokens, c.window)}% used`}</Text>
+      </Box>,
+    ]
+  })
 }
 
 // ---------- to-do ----------
@@ -466,6 +495,7 @@ export function paneView(ctx: Ctx): RenderElement {
   const { Box } = ctx.ui
   return (
     <Box flexDirection="column" gap={1}>
+      {contextSection(ctx)}
       {todoSection(ctx)}
       {crewSection(ctx)}
       {skillsSection(ctx)}

@@ -5,7 +5,7 @@ import type { On, RenderElement } from 'claude-code'
 import { skillListSvg, stepSvg, toolListSvg } from '../hooks/art'
 import { bandSvg, beachSvg, crewListSvg, legendSvg } from '../hooks/crabs'
 import { BASE_MARK, characterKeyOf, crabMeta, crewNameOf, crewOrder, crewSummary, duration, legendOf, listTotals, modelName, outcomeOf, poseOf, progressOf, quipOf, tokensLabel, withChange } from '../hooks/crew'
-import { DEFAULT_LAYOUT, DESKTOP_PLAN, DESKTOP_WRAP_UP, EMPTY_PLAN, countTool, groupLabel, listOrders, markAlways, movesAfter, parseLayout, planAfter, skillOfPath, stampSteps, toolGroups, toolRows } from '../hooks/track'
+import { DEFAULT_LAYOUT, DESKTOP_PLAN, contextPercent, contextSize, DESKTOP_WRAP_UP, EMPTY_PLAN, countTool, groupLabel, listOrders, markAlways, movesAfter, parseLayout, planAfter, skillOfPath, stampSteps, toolGroups, toolRows } from '../hooks/track'
 import type { LensCrab, LensPlan, LensTool } from '../types'
 
 const PANE = {
@@ -1194,6 +1194,55 @@ describe('the showQuips setting', () => {
       expect(await shows(ui, /Pip/)).toBe(true)
       expect(await shows(ui, /“/)).toBe(false)
       expect(await shows(ui, /Pip: /)).toBe(false)
+      await ui.unmount()
+    }
+  })
+})
+
+// ---------- the context window ----------
+
+describe('the context window', () => {
+  test('sizes read like the status line’s: 167.9k, 1M, 200k; the share as a whole percentage', async () => {
+    expect([contextSize(167_900), contextSize(1_000_000), contextSize(200_000), contextSize(940)]).toEqual(['167.9k', '1M', '200k', '940'])
+    expect(contextPercent(167_900, 1_000_000)).toBe(17)
+  })
+
+  test('a section above To-do: tokens of the window by its title, a bar of the share used; it folds', async ($, on) => {
+    mock.clock(on, { now: 10_000 })
+    mock.store(on)
+    let tokens: number | undefined
+    on('session.usage', () => ({ value: { startedAt: 0, context: { tokens, window: 1_000_000 }, rateLimits: [] } }) as never)
+    on('turn.step', async function* (_, e) {
+      return { turnId: e.turnId, index: e.index, answer: '', toolUses: [] } as never
+    })
+    const step = async () => {
+      const stream = $.turn.step({ turnId: 'turn-1', index: 1, model: 'claude-opus-5-5', messageCount: 3 } as never)
+      for await (const _ of stream) {
+        // Nothing streams beneath the test.
+      }
+      await stream.result
+    }
+    // No reading yet: the title alone.
+    await step()
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE, surface })
+      expect(await ui.find({ key: 'sec-context' })).toBeDefined()
+      expect(await shows(ui, /% used/)).toBe(false)
+      await ui.unmount()
+    }
+    // A request of the main conversation answered: the meter reads the window.
+    tokens = 167_900
+    await step()
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE, surface })
+      expect(await shows(ui, /167\.9k \/ 1M/)).toBe(true)
+      expect(await shows(ui, /17% used/)).toBe(true)
+      // Above To-do.
+      const keys = (await ui.findAll({})).map(f => (f as { key?: string }).key).filter(k => k === 'sec-context' || k === 'sec-todo')
+      expect(keys[0]).toBe('sec-context')
+      await ui.press({ key: 'sec-context' })
+      expect(await shows(ui, /17% used/)).toBe(false)
+      await ui.press({ key: 'sec-context' })
       await ui.unmount()
     }
   })

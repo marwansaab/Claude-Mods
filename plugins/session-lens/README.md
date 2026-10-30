@@ -1,15 +1,16 @@
 # session-lens
 
-A pane that shows what this session is doing and has used: Claude's to-do list, its crew of subagents as animated crabs racing on a beach, and the skills and tools it used. A crew band above the prompt follows the subagents while they work. Open it with `/lens`; in the desktop app it opens by itself the first time a session uses a tool or a skill.
+A pane that shows what this session is doing and has used: how full the context window is, Claude's to-do list, its crew of subagents as animated crabs racing on a beach, and the skills and tools it used. A crew band above the prompt follows the subagents while they work. Open it with `/lens`; in the desktop app it opens by itself the first time a session uses a tool or a skill.
 
 It works with the standard agents and tools and with any MCP server or connector: no skills, prompts or tool calls are needed from the model, as the mod watches the session itself.
 
-![The session lens: To-do, Crew, Skills and Tools](docs/pane.png)
+![The session lens: Context, To-do, Crew, Skills and Tools](docs/pane.png)
 
 ## What it does
 
-The pane has four sections, each folding on its own with its arrow or title:
+The pane has five sections, each folding on its own with its arrow or title:
 
+- **Context**: how full the context window is.
 - **To-do**: Claude's current task list, with how far along it is.
 - **Crew**: Captain Clawd (the main thread) and a crab for each subagent, racing toward their flags on a beach, with a row each for the crabs at work and those that reported back.
 - **Skills**: each skill used, with its count.
@@ -18,6 +19,10 @@ The pane has four sections, each folding on its own with its arrow or title:
 The counts are for this session only: only tools and skills that were actually used appear. Calls made by subagents count too. The to-do list follows the main conversation only. Your layout (which sections and groups are open, grouped or flat, the sort) is kept for your next session.
 
 In the desktop app the rows are animated drawings, in light and dark. Each animation plays once, when its row changes, and the rest of the pane stays still. The terminal draws the same sections in text.
+
+### Context
+
+How full the context window is, as the status line reads it: the tokens the last response was answered over, out of the model's window, by the title (`167.9k / 1M`), and under it a bar like the to-do list's with the share used (`17% used`). It is read again each time the main conversation's model answers, so it follows compaction and `/clear`, and the bar grows from the last reading. Until the first answer it shows only its title.
 
 ### To-do and Skills
 
@@ -90,9 +95,9 @@ While a crew is out, a **crew band** sits just above the prompt: its crabs, who 
 
 ### Using the pane
 
-The first time, **To-do**, **Crew** and **Skills** are open and **Tools** is closed, showing only its summary ("8 tools · 56 calls"). Open it to see the tools grouped by server, sorted by **Most used**, with every server collapsed. A section with nothing in it yet shows only its header.
+The first time, **Context**, **To-do**, **Crew** and **Skills** are open and **Tools** is closed, showing only its summary ("8 tools · 56 calls"). Open it to see the tools grouped by server, sorted by **Most used**, with every server collapsed. A section with nothing in it yet shows only its header.
 
-- Press a section's arrow or title (**▾ To-do**, **▾ Crew**, **▾ Skills**, **▸ Tools**) to close or open that section; in **Crew**, **▾ At work** and **▾ Reported back** fold the same way.
+- Press a section's arrow or title (**▾ Context**, **▾ To-do**, **▾ Crew**, **▾ Skills**, **▸ Tools**) to close or open that section; in **Crew**, **▾ At work** and **▾ Reported back** fold the same way.
 - What you change is kept for your next session: open and closed sections, lists and groups, grouped or flat, the sort, and whether who's who is open. The filter always starts empty.
 
 ## Install
@@ -138,6 +143,7 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 
 ## How it works
 
+- The context meter reads `$.session.usage()`, the status line's figures, with no breakdown, so the call is free. It is read when the session starts, after each model request of the main conversation (`turn.step`), when `/lens` opens the pane, and after `/clear`.
 - A `tool.call` hook lets each call run, then counts it unless it was denied. It never changes the call, and a failure inside it is swallowed.
 - The to-do list is rebuilt from the plan tools the main conversation calls: `TodoWrite`, `TaskCreate` and `TaskUpdate`, and the desktop app's own task list (`update_plan`, with `advance`, `done` and `start`). The desktop app's closing `wrap_up` call ticks every step off.
 - The crew comes from the subagents' own events. `agent.spawn` casts a crab by agent type: `general-purpose` is a Deckhand, `Explore` a Scout, `Plan` a Navigator, `claude-code-guide` a Professor, `statusline-setup` a Signaller and `fork` an Understudy. Any other type is always dealt the same one of the Cook, Sleuth, Wizard and Diver. `agent.spawn` also notes the subagent's model. A subagent's `turn.step` sets its crab thinking, and once the request is answered adds its tokens (input, output and cache reads and writes, as crab-crew counts them) to the crab and updates its model; a run whose requests were not seen one by one takes its totals from `turn.complete`. Its `tool.call`s say what it is doing and feed its to-do progress, and its `turn.complete` says how the run ended. A crab that is done stays on the beach for 3 s, and a timer then notes the crew's new order so it flies to the list. The main conversation's own `turn.step`, `tool.call` and `turn.complete` do the same for the captain. While a crab works, the pane is redrawn every 5 s so a crab left without a call is drawn waiting. The band above the prompt is a `ui.render` hook on `AbovePrompt`: it shows the crabs that set out or came back since the last prompt sent with no one out, and draws what Claude Code and other mods put in the band under its own, as the band is shared; it leaves the band to them when there are none, or when a survey is up. The cast, its lines and the progress estimate are adapted from this repository's [crab-crew](../crab-crew) mod. A crab's walk along its lane is pinned to when its progress moved, as every animation here is.

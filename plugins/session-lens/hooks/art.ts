@@ -200,6 +200,21 @@ export function todoProgressSvg(w: number, done: number, total: number, doneBefo
   return { svg: doc(w, h, body), height: h, alt: `${done} of ${total} steps done` }
 }
 
+// ---------- context ----------
+
+/** How full the context window is: the to-do list's bar, grown from the last reading, and the share used. */
+export function contextSvg(w: number, tokens: number, window: number, before: number, at: number, now: number): Drawn {
+  const h = 30
+  const used = Math.min(1, tokens / Math.max(1, window))
+  const label = `${Math.round(used * 100)}% used`
+  const labelW = 64
+  const body =
+    gradient('slcg', ACCENT, ACCENT_2) +
+    bar('slcb', 2, 12, w - labelW - 10, 7, Math.min(1, before / Math.max(1, window)), used, 'url(#slcg)', false, at, now) +
+    `<text${attrs('dim', once('fade', at, now))} x="${w - 2}" y="19" font-size="12" font-weight="600" text-anchor="end">${esc(label)}</text>`
+  return { svg: doc(w, h, body), height: h, alt: `Context ${label}: ${tokens} of ${window} tokens` }
+}
+
 /**
  * One step: its mark, then its text wrapped beside it. It comes in after `enterAt` (it joined the list, or
  * its section opened), and draws its check and strike after its own `changedAt`.

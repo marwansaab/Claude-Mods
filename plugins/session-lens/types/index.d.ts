@@ -51,7 +51,10 @@ export type LensSkill = {
 export type LensMove = { from: string[]; to: string[]; at: number }
 
 /** The pane's sections, and the two lists inside the crew (`crewWork`, `crewBase`), each folding on its own. */
-export type LensSection = 'todo' | 'crew' | 'crewWork' | 'crewBase' | 'skills' | 'tools'
+export type LensSection = 'context' | 'todo' | 'crew' | 'crewWork' | 'crewBase' | 'skills' | 'tools'
+
+/** How full the context window is, as the status line reads it, and the reading before: the bar grows from there. */
+export type LensContext = { tokens: number; window: number; before: number; at: number }
 export type LensSort = 'count' | 'name' | 'recent'
 
 /** What a crab was last seen doing, from its last call or model request. */
@@ -145,6 +148,8 @@ declare module 'claude-code' {
       crew: Record<string, LensCrab>
       /** The main thread, always on the beach. */
       captain: LensCaptain
+      /** The context window's last reading; null until the first. */
+      context: LensContext | null
       /**
        * When the current race began: a crab set out with no one at work. The crew lists show the crabs of
        * this race alone, so the list of those back starts empty with each race.
