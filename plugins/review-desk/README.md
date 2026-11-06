@@ -28,6 +28,18 @@ There are no HTML pages to build, no browser to open and no notes to export and 
 - **Submit, and Claude applies it.** Submitting writes `outcome.md` and `outcome.json`, moves the review to `reviewed/`, and queues a prompt that asks Claude to apply the outcome in each record's real home and to confirm with you before writing.
 - **Larger text.** On the desktop, the *Aa* button at the top of the panel steps the text size through normal, large (16 px) and larger (18 px). It changes the `fontSize` setting, so the size you pick stays. Card text, the chat, the scenes, the header and the stepper all grow, and titles step up to the app's heading size.
 
+### The six cards
+
+Each card type has its own frame colour and its own way to answer.
+
+| Question | Decision |
+| --- | --- |
+| ![A question card: the question, its context and evidence, and options with Claude's recommendation marked](docs/cards/question.png) | ![A decision card: the proposal, why, the alternatives considered, and Approve, Approve with changes or Reject](docs/cards/decision.png) |
+| **Finding** | **Plan** |
+| ![A finding card: severity, the quote, the suggested change, what the record says, and Accept, Reject or Discuss](docs/cards/finding.png) | ![A plan card: each row ticked yes, a switch between List and One at a time, and Go ahead or Cancel](docs/cards/plan.png) |
+| **Explainer** | **Read-through** |
+| ![An explainer card: step 1 of 3 with an animated flow scene, its caption and graded evidence, and Got it, next](docs/cards/explainer.png) | ![A read-through card: a section picker, a "Your call" flag, the section's text, and Reviewed, next](docs/cards/read.png) |
+
 ### Chat about a card
 
 Under every card is a chat about that card. Type a question in the box and press Enter. The desk sends it to Claude in your session, along with the card it is about. Claude researches it with whatever the session can reach (the web, your project, its notes), then puts the answer back under the same card with its sources. Your question shows on the right and Claude's answer on the left. *Copy* puts the question, the answer and the sources on your clipboard as Markdown. Each card keeps its own conversation, saved with the review, and Claude changes no record unless you ask.
