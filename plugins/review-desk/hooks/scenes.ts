@@ -44,6 +44,17 @@ svg{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 const svgDoc = (w: number, h: number, body: string) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${STYLE}${body}</svg>`
 
+/**
+ * A drawing at a larger text size: laid out at `w / scale`, then drawn `scale` times larger to fill
+ * `w`, so its text and shapes grow together and wrap to the room they have. 1 draws it as it is.
+ */
+export function zoomed(w: number, scale: number, draw: (w: number) => Drawn): Drawn {
+  if (scale === 1) return draw(w)
+  const d = draw(w / scale)
+  const h = Math.ceil(d.height * scale)
+  return { ...d, height: h, svg: d.svg.replace(/^<svg xmlns="([^"]+)" width="[^"]*" height="[^"]*"/, `<svg xmlns="$1" width="${w}" height="${h}"`) }
+}
+
 const delay = (s: number) => `style="animation-delay:${s.toFixed(2)}s"`
 const toneOf = (t?: Tone): Tone => t ?? 'context'
 
@@ -381,8 +392,10 @@ function compareScene(w: number, s: Extract<Scene, { kind: 'compare' }>): Drawn 
   const cw = (w - 24 - labelW) / Math.max(1, cols)
   const per = Math.max(8, Math.floor(cw / 6.5))
   let y = 12
-  let body = `<g class="fade">${s.columns.map((c, i) => textLines(12 + labelW + i * cw + 8, y + 14, wrap(c, per, 2), 12, 'ink', 1.2, 700)).join('')}</g>`
-  y += 30
+  const heads = s.columns.map(c => wrap(c, per, 2))
+  let body = `<g class="fade">${heads.map((lines, i) => textLines(12 + labelW + i * cw + 8, y + 14, lines, 12, 'ink', 1.2, 700)).join('')}</g>`
+  // A header that wraps pushes the rows down by its second line.
+  y += 16 + Math.max(1, ...heads.map(h => h.length)) * 14.4
   s.rows.forEach((row, r) => {
     const cells = row.cells.slice(0, cols).map(c => wrap(c, per, 3))
     const label = wrap(row.label, Math.floor(labelW / 6.8), 3)
@@ -421,7 +434,10 @@ function matrixScene(w: number, s: Extract<Scene, { kind: 'matrix' }>, claims: M
     .map((d, i) => {
       const cx = x0 + d.x * size
       const cy = y0 + (1 - d.y) * size
-      return `<g class="pop" ${delay(0.4 + 0.12 * i)}><circle cx="${cx}" cy="${cy}" r="7" class="f-${toneOf(d.tone ?? 'decision')}"/></g><text x="${cx + 11}" y="${cy + 4}" font-size="11.5" font-weight="600" class="ink fade" ${delay(0.5 + 0.12 * i)}>${esc(d.label)}</text>${badge(cx - 9, cy - 24, d.claim, claims, 'start')}`
+      // A label that would run past the right edge is drawn to the left of its dot.
+      const isLeft = cx + 11 + d.label.length * 6.6 > w - 4
+      const lx = isLeft ? cx - 11 : cx + 11
+      return `<g class="pop" ${delay(0.4 + 0.12 * i)}><circle cx="${cx}" cy="${cy}" r="7" class="f-${toneOf(d.tone ?? 'decision')}"/></g><text x="${lx}" y="${cy + 4}" font-size="11.5" font-weight="600" text-anchor="${isLeft ? 'end' : 'start'}" class="ink fade" ${delay(0.5 + 0.12 * i)}>${esc(d.label)}</text>${badge(cx - 9, cy - 24, d.claim, claims, 'start')}`
     })
     .join('')
   const axes =

@@ -16,8 +16,8 @@ import {
   readPack,
   summaryOf,
 } from './pack'
-import { homeView, packView } from './view'
-import type { Actions } from './view'
+import { fontSizeOf, homeView, packView } from './view'
+import type { Actions, FontSize } from './view'
 
 const PANE = 'review-desk'
 const PANE_TITLE = 'Review desk'
@@ -50,7 +50,7 @@ function viewOf(v: Partial<DeskView> | undefined): DeskView {
 }
 
 /** The person's settings: set by `register` on every load, read by the functions below. */
-const cfg = { folder: 'Reviews', autoOpen: true, handOff: true, selectableText: true }
+const cfg = { folder: 'Reviews', autoOpen: true, handOff: true, selectableText: true, fontSize: 'normal' as FontSize }
 
 /** The desk observes and stores; nothing it does may fail a tool call, a command or a turn. */
 async function safely<T>(work: () => Promise<T>): Promise<T | undefined> {
@@ -372,6 +372,17 @@ async function copyText($: EngineInterface, text: string, surface: string): Prom
   $.ui.toast('Could not reach the clipboard')
 }
 
+/**
+ * Changes the text size setting itself, as /config would: the setting is the one place the size is
+ * kept, and the change reloads the desk with it.
+ */
+async function setTextSize($: EngineInterface, size: FontSize): Promise<void> {
+  const rows = await $.config.list().catch(() => [])
+  const row = rows.find(r => r.provider.plugin === 'review-desk' && r.key.endsWith('.fontSize'))
+  const done = await $.config.set({ key: row?.key ?? 'review-desk.fontSize', value: size })
+  if (done.deny) $.ui.toast(`Text size not changed: ${done.deny}`)
+}
+
 /** The pane's controls, each one saving what it changes. */
 function actionsFor($: EngineInterface): Actions {
   const run = (work: () => Promise<unknown>) => void safely(work)
@@ -394,6 +405,7 @@ function actionsFor($: EngineInterface): Actions {
     confirm: isOn => run(() => moveTo($, x => ({ ...x, isConfirming: isOn }))),
     resend: () => run(() => resend($)),
     copy: (text, surface) => run(() => copyText($, text, surface)),
+    textSize: size => run(() => setTextSize($, size)),
   }
 }
 
@@ -537,6 +549,7 @@ export const register: Register = (on, options) => {
   cfg.autoOpen = options.autoOpen !== false
   cfg.handOff = options.handOff !== false
   cfg.selectableText = options.selectableText !== false
+  cfg.fontSize = fontSizeOf(options.fontSize)
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -574,6 +587,7 @@ export const register: Register = (on, options) => {
       act: actionsFor($),
       folder: cfg.folder,
       selectable: cfg.selectableText,
+      fontSize: cfg.fontSize,
     }
     try {
       return v.openId ? packView(ctx) : homeView(ctx)

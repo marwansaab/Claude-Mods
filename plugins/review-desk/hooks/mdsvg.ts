@@ -3,8 +3,8 @@
 // text itself, by an estimate of glyph widths, and keeps to the Markdown a review uses: paragraphs,
 // headings, lists, quotes, **bold**, *italic*, `code` and links (drawn with their address, not clickable).
 
-const FONT = 14
-const LINE = Math.round(FONT * 1.5)
+/** The text size at the normal setting; a larger setting scales it (see `view.tsx`). */
+export const FONT = 14
 const GAP = 8
 
 type Style = 'n' | 'b' | 'i' | 'bi' | 'c' | 'l'
@@ -193,18 +193,20 @@ export function markdownSvg(md: string, width: number, isDim = false, base = FON
  * The owner's question as a chat bubble, sized to its text up to `maxWidth`: drawn as SVG so it is
  * selectable and follows the light or dark theme.
  */
-export function bubbleSvg(text: string, maxWidth: number): TextDrawn & { width: number } {
+export function bubbleSvg(text: string, maxWidth: number, size = FONT): TextDrawn & { width: number } {
   const padX = 14
-  const padY = 9
+  const padY = Math.round((9 * size) / FONT)
+  const line = Math.round(size * 1.5)
   const runs: Run[] = [{ text: text.replace(/\s+/g, ' ').trim(), style: 'n' }]
-  const lines = wrapRuns(runs, Math.max(80, maxWidth - padX * 2), FONT)
+  const lines = wrapRuns(runs, Math.max(80, maxWidth - padX * 2), size)
   const widest = Math.max(...lines.map(l => l.reduce((w, p) => w + p.w, 0)), 20)
   const width = Math.min(maxWidth, Math.ceil(widest + padX * 2 + 6))
-  const height = padY * 2 + lines.length * LINE
+  const height = padY * 2 + lines.length * line
   const body = lines
-    .map((l, i) => `<text x="${padX}" y="${(padY + (i + 1) * LINE - LINE * 0.3).toFixed(1)}" xml:space="preserve">${tspans(l)}</text>`)
+    .map((l, i) => `<text x="${padX}" y="${(padY + (i + 1) * line - line * 0.3).toFixed(1)}" xml:space="preserve">${tspans(l)}</text>`)
     .join('')
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${STYLE}<style>.bub{fill:#f0eee6}@media (prefers-color-scheme: dark){.bub{fill:#393937}}</style><rect x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="16" class="bub"/>${body}</svg>`
+  const sized = size === FONT ? '' : `<style>svg{font-size:${size}px}</style>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${STYLE}${sized}<style>.bub{fill:#f0eee6}@media (prefers-color-scheme: dark){.bub{fill:#393937}}</style><rect x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="16" class="bub"/>${body}</svg>`
   return { svg, height, width, alt: text }
 }
 

@@ -3,9 +3,9 @@ import type { On } from 'claude-code'
 
 import type { Pack } from '../types'
 import { cardState, cleanPack, emptyDraft, handOffPrompt, outcomeMarkdown } from '../hooks/pack'
-import { sceneSvg, sceneText, wrap } from '../hooks/scenes'
-import { markdownSvg } from '../hooks/mdsvg'
-import { isLinkHeavy } from '../hooks/view'
+import { sceneSvg, sceneText, wrap, zoomed } from '../hooks/scenes'
+import { bubbleSvg, markdownSvg } from '../hooks/mdsvg'
+import { FONT_PX, fontSizeOf, isLinkHeavy } from '../hooks/view'
 import type { Scene } from '../types'
 
 const AT = '2026-10-16T09:00:00.000Z'
@@ -171,6 +171,61 @@ describe('scenes', () => {
     const lines = wrap('one two three four five six seven eight nine ten', 12)
     expect(lines.every(l => l.length <= 18)).toBe(true)
     expect(lines.length).toBeGreaterThan(2)
+  })
+})
+
+describe('text size', () => {
+  const sizeOf = (svg: string) => [...svg.matchAll(/font-size:(\d+)px/g)].map(m => Number(m[1])).at(-1)
+  const attrs = (svg: string) => {
+    const m = /^<svg[^>]* width="([\d.]+)" height="([\d.]+)" viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg)
+    return m ? m.slice(1).map(Number) : []
+  }
+
+  test('only the three sizes are read; anything else is normal', async () => {
+    expect(['normal', 'large', 'larger', 'huge', undefined, 3].map(fontSizeOf)).toEqual(['normal', 'large', 'larger', 'normal', 'normal', 'normal'])
+    expect(FONT_PX).toEqual({ normal: 14, large: 16, larger: 18 })
+  })
+
+  test('larger text wraps to the same width and grows taller', async () => {
+    const long = 'Should players be able to report an inappropriate ad from the ad itself? '.repeat(6)
+    const normal = markdownSvg(long, 360)
+    const larger = markdownSvg(long, 360, false, 18)
+    expect(sizeOf(larger.svg)).toBe(18)
+    expect(attrs(larger.svg).slice(0, 1)).toEqual([360])
+    expect(larger.height).toBeGreaterThan(normal.height)
+  })
+
+  test('a question bubble grows with the text but never past its width', async () => {
+    const q = 'Do other games let players report ads, and what happens to the report afterwards?'
+    for (const size of [14, 16, 18]) {
+      const d = bubbleSvg(q, 300, size)
+      expect(d.width).toBeLessThanOrEqual(300)
+      if (size !== 14) expect(sizeOf(d.svg)).toBe(size)
+    }
+    expect(bubbleSvg(q, 300, 18).height).toBeGreaterThan(bubbleSvg(q, 300).height)
+  })
+
+  test('a scene at a larger size is laid out narrower and drawn larger to fill the same width', async () => {
+    const scene: Scene = { kind: 'cards', items: [{ title: 'Retention', text: 'Most players leave in the first week of play.' }, { title: 'Ads', text: 'One in five sessions ends on an ad.', tone: 'risk' }] }
+    expect(zoomed(600, 1, w => sceneSvg(w, scene))).toEqual(sceneSvg(600, scene))
+    const plain = sceneSvg(600, scene)
+    const big = zoomed(600, 18 / 14, w => sceneSvg(w, scene))
+    const [w, h, vw, vh] = attrs(big.svg)
+    expect(w).toBe(600)
+    expect(Math.abs(vw! - (600 * 14) / 18)).toBeLessThan(0.01)
+    expect(h).toBe(big.height)
+    expect(h).toBeGreaterThanOrEqual(Math.ceil(vh! * (18 / 14)))
+    expect(big.height).toBeGreaterThan(plain.height)
+    expect(big.svg).toMatch(/prefers-reduced-motion: reduce/)
+    expect(big.alt).toBe(plain.alt)
+  })
+
+  test('on a narrow scene, a dot label near the right edge turns left and a wrapped header pushes the rows down', async () => {
+    const matrix = sceneSvg(190, { kind: 'matrix', x: 'Effort', y: 'Value', dots: [{ label: 'Settings menu', x: 0.7, y: 0.45 }, { label: 'Ok', x: 0.1, y: 0.5 }] })
+    expect(matrix.svg).toMatch(/text-anchor="end"[^>]*>Settings menu</)
+    expect(matrix.svg).toMatch(/text-anchor="start"[^>]*>Ok</)
+    const rowTop = (w: number) => Number(/translate\(0,([\d.]+)\)/.exec(sceneSvg(w, { kind: 'compare', columns: ['Report button', 'Settings menu'], rows: [{ label: 'Taps', cells: ['one', 'four'] }] }).svg)?.[1])
+    expect(rowTop(190)).toBeGreaterThan(rowTop(800))
   })
 })
 
@@ -467,6 +522,51 @@ describe('the desk', () => {
       expect(await shows(pane, /Ask Claude about this card/)).toBe(true)
       await pane.unmount()
     }
+  })
+
+  test('the text size setting enlarges what the desk draws on the desktop; the panel button changes the setting', { options: { fontSize: 'larger' } }, async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    memoryWorld(on)
+    const sets: unknown[] = []
+    const row = { key: 'review-desk.fontSize', label: 'Text size', kind: 'choice', value: 'larger', options: ['normal', 'large', 'larger'], provider: { plugin: 'review-desk', tier: 'user' }, isLocked: false }
+    on('config.list', () => ({ value: [row] }) as never)
+    on('config.set', ($, e) => {
+      sets.push({ key: e.key, value: e.value })
+      return { value: e.value }
+    })
+    await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_10', ...SAMPLE } as never)
+
+    const desk = await $.ui.mount({ plugin: 'review-desk', surface: 'desktop', ...PANE })
+    const prompt = (await desk.findAll({ type: 'Svg' })).find(f => /report an ad/.test(String(f.props.alt)))
+    expect(String(prompt?.props.source)).toMatch(/font-size:18px/)
+    // The card's title steps up too; the button names the size and steps to the next one.
+    expect((await desk.findAll({ type: 'Text' })).some(t => t.text === 'Report an inappropriate ad' && t.props.size === 'heading')).toBe(true)
+    expect((await desk.find({ key: 'text-size' }))?.text).toMatch(/larger/)
+    await desk.press({ key: 'text-size' })
+    expect(sets).toEqual([{ key: 'review-desk.fontSize', value: 'normal' }])
+    // The explainer's scene fills the same width, drawn larger.
+    await desk.select({ key: 'jump-card', value: '4' })
+    const scene = (await desk.findAll({ type: 'Svg' })).find(f => /Day 1: 40/.test(String(f.props.alt)))
+    expect(String(scene?.props.source)).toMatch(new RegExp(`width="${scene?.props.width}" height="${scene?.props.height}" viewBox="0 0 [\\d.]+ `))
+    await desk.unmount()
+
+    // The terminal has one size: no button, nothing changes.
+    const term = await $.ui.mount({ plugin: 'review-desk', surface: 'terminal', ...PANE })
+    expect(await term.find({ key: 'text-size' })).toBeUndefined()
+    expect(await shows(term, /Why players leave/)).toBe(true)
+    await term.unmount()
+  })
+
+  test('at the normal size the desk draws as before', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    memoryWorld(on)
+    await $.tool.call({ tool: 'mcp__review-desk__publish_review', tool_use_id: 'toolu_11', ...SAMPLE } as never)
+    const desk = await $.ui.mount({ plugin: 'review-desk', surface: 'desktop', ...PANE })
+    const prompt = (await desk.findAll({ type: 'Svg' })).find(f => /report an ad/.test(String(f.props.alt)))
+    expect(String(prompt?.props.source)).not.toMatch(/font-size:(16|18)px/)
+    expect((await desk.findAll({ type: 'Text' })).some(t => t.props.size === 'heading')).toBe(false)
+    expect((await desk.find({ key: 'text-size' }))?.text).toMatch(/normal/)
+    await desk.unmount()
   })
 
   test('a bad pack is refused with what to fix, and nothing is written', async ($, on) => {
