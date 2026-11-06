@@ -6,8 +6,8 @@ import type { Elements, RenderElement } from 'claude-code'
 import type { Ask, Card, CardType, Claim, DeskView, OpenPack, PackSummary, Response } from '../types'
 import { TYPE_LABEL, cardOutcome, cardState, cardText, partKey, rowIsOn } from './pack'
 import type { CardState } from './pack'
-import { bubbleSvg, markdownSvg, thinkingSvg } from './mdsvg'
-import { deskHeaderSvg, ringSvg, sceneSvg, sceneText, stepperSvg } from './scenes'
+import { FONT, bubbleSvg, markdownSvg, thinkingSvg } from './mdsvg'
+import { deskHeaderSvg, ringSvg, sceneSvg, sceneText, stepperSvg, zoomed } from './scenes'
 
 type UI = Elements['terminal'] | Elements['desktop'] | Elements['vscode'] | Elements['mobile']
 
@@ -33,7 +33,20 @@ export type Actions = {
   resend: () => void
   /** Puts text on the clipboard of the surface the press came from. */
   copy: (text: string, surface: string) => void
+  /** Sets the text size setting. */
+  textSize: (size: FontSize) => void
 }
+
+/** The text size setting: how large the desk draws its own text on the desktop. */
+export type FontSize = 'normal' | 'large' | 'larger'
+export const FONT_SIZES: readonly FontSize[] = ['normal', 'large', 'larger']
+/** Body text in pixels at each setting; every drawing of the desk's grows with it. */
+export const FONT_PX: Record<FontSize, number> = { normal: FONT, large: 16, larger: 18 }
+/** The setting as stored, or normal for anything else. */
+export const fontSizeOf = (v: unknown): FontSize => (FONT_SIZES.includes(v as FontSize) ? (v as FontSize) : 'normal')
+const scaleOf = (ctx: Ctx) => FONT_PX[ctx.fontSize] / FONT
+/** A title the app draws itself: a step up from body text once the setting is above normal. */
+const titleSize = (ctx: Ctx) => (ctx.fontSize === 'normal' ? undefined : 'heading')
 
 export type Ctx = {
   ui: UI
@@ -46,6 +59,7 @@ export type Ctx = {
   folder: string
   /** Draw text blocks as interactive SVG, whose text the desktop lets you select and copy. */
   selectable: boolean
+  fontSize: FontSize
 }
 
 const GLYPH: Record<CardState, string> = { done: '●', partial: '◐', open: '○' }
@@ -76,8 +90,8 @@ const bar = (done: number, total: number, width = 10) => {
 }
 
 /** How text blocks are drawn in the current drawing, by its element table (one per render). */
-const drawing = new WeakMap<object, { width: number; isSvg: boolean }>()
-const drawText = (ctx: Ctx) => drawing.set(ctx.ui, { width: Math.max(240, ctx.width - 40), isSvg: ctx.selectable && ctx.isDesktop && 'Svg' in ctx.ui })
+const drawing = new WeakMap<object, { width: number; isSvg: boolean; scale: number }>()
+const drawText = (ctx: Ctx) => drawing.set(ctx.ui, { width: Math.max(240, ctx.width - 40), isSvg: ctx.selectable && ctx.isDesktop && 'Svg' in ctx.ui, scale: scaleOf(ctx) })
 
 const LINK = /\[[^\]]+\]\([^)\s]+\)|https?:\/\/\S+/g
 
@@ -101,7 +115,7 @@ const md = (ui: UI, text: string | undefined, key?: string, dim?: boolean, links
   if (!text?.trim()) return null
   const how = drawing.get(ui)
   if (how?.isSvg && 'Svg' in ui && links !== 'open' && !isLinkHeavy(text)) {
-    const d = markdownSvg(text, how.width, !!dim, size)
+    const d = markdownSvg(text, how.width, !!dim, Math.round((size ?? FONT) * how.scale))
     return <ui.Svg key={key} source={d.svg} alt={d.alt} width={how.width} height={d.height} isInteractive />
   }
   const { Markdown } = ui
@@ -136,6 +150,14 @@ function field(ctx: Ctx, key: string, caption: string, value: string | undefined
   )
 }
 
+/** The text size, on the desktop only (the terminal has one size): each press steps to the next. */
+function sizeButton(ctx: Ctx): RenderElement | null {
+  if (!ctx.isDesktop) return null
+  const { Button } = ctx.ui
+  const next = FONT_SIZES[(FONT_SIZES.indexOf(ctx.fontSize) + 1) % FONT_SIZES.length]!
+  return <Button key="text-size" plain dimColor label={`Aa ${ctx.fontSize} text`} onPress={() => ctx.act.textSize(next)} />
+}
+
 // ---------- the list ----------
 
 export function homeView(ctx: Ctx): RenderElement {
@@ -151,7 +173,7 @@ export function homeView(ctx: Ctx): RenderElement {
   let header: RenderElement
   if (ctx.isDesktop && 'Svg' in ui) {
     const { Svg } = ui
-    const d = deskHeaderSvg(ctx.width, pending.length, reviewed.length, answered, cards)
+    const d = zoomed(ctx.width, scaleOf(ctx), w => deskHeaderSvg(w, pending.length, reviewed.length, answered, cards))
     header = <Svg key="desk-header" source={d.svg} alt={d.alt} width={ctx.width} height={d.height} />
   } else {
     header = (
@@ -191,6 +213,7 @@ export function homeView(ctx: Ctx): RenderElement {
         <Button key="tab-pending" variant={view.tab === 'pending' ? 'primary' : 'secondary'} label={`Waiting · ${pending.length}`} onPress={() => act.tab('pending')} />
         <Button key="tab-reviewed" variant={view.tab === 'reviewed' ? 'primary' : 'secondary'} label={`Reviewed · ${reviewed.length}`} onPress={() => act.tab('reviewed')} />
         <Button key="refresh" plain dimColor label="↻ Refresh" onPress={act.refresh} />
+        {sizeButton(ctx)}
       </Box>
       {shown.length === 0 && (
         <Text dimColor>
@@ -496,7 +519,9 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
         if (ctx.isDesktop && 'Svg' in ui) {
           const { Svg } = ui
           const w = Math.max(240, ctx.width - 40)
-          const d = sceneSvg(w, step.scene, pack.claims)
+          const shown = step.scene
+          // Scenes are laid out for 240 pixels and up: on a narrow pane a larger size grows them only that far.
+          const d = zoomed(w, Math.min(scaleOf(ctx), Math.max(1, w / 240)), lw => sceneSvg(lw, shown, pack.claims))
           scene = <Svg key={`scene-${card.id}-${at}`} source={d.svg} alt={d.alt} width={w} height={d.height} isInteractive />
         } else {
           scene = (
@@ -522,7 +547,9 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
             <Text dimColor>
               Step {at + 1} of {n} ·{' '}
             </Text>
-            <Text bold>{step.title}</Text>
+            <Text bold size={titleSize(ctx)}>
+              {step.title}
+            </Text>
           </Text>,
           scene,
           md(ui, step.caption, `ec-${card.id}-${at}`),
@@ -558,7 +585,9 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
             <Text dimColor>
               Section {at + 1} of {n} ·{' '}
             </Text>
-            <Text bold>{s.title}</Text>
+            <Text bold size={titleSize(ctx)}>
+              {s.title}
+            </Text>
           </Text>,
           md(ui, (s.flags ?? []).map(f => `> **Your call:** ${f}`).join('\n\n'), `rf-${card.id}-${at}`),
           md(ui, s.body, `rb-${card.id}-${at}`),
@@ -580,7 +609,7 @@ function questionBubble(ctx: Ctx, a: Ask): RenderElement {
   const { ui } = ctx
   const { Box, Text } = ui
   if (ctx.isDesktop && 'Svg' in ui) {
-    const d = bubbleSvg(a.question, Math.max(200, Math.round((ctx.width - 40) * 0.8)))
+    const d = bubbleSvg(a.question, Math.max(200, Math.round((ctx.width - 40) * 0.8)), FONT_PX[ctx.fontSize])
     return (
       <Box key={`q-${a.id}`} flexDirection="row" justifyContent="flex-end">
         <ui.Svg source={d.svg} alt={d.alt} width={d.width} height={d.height} isInteractive />
@@ -692,16 +721,22 @@ export function packView(ctx: Ctx): RenderElement {
   const meta = [pack.label, isPending ? `published ${when(pack.createdAt)}` : `submitted ${when(open.submittedAt)}`, pack.origin].filter(Boolean).join(' · ')
   let ring: RenderElement | null = null
   if (isDesktop && 'Svg' in ui) {
-    const d = ringSvg(answered, n)
+    const s = scaleOf(ctx)
+    const d = zoomed(Math.round(52 * s), s, () => ringSvg(answered, n))
     ring = <ui.Svg key={`ring-${answered}`} source={d.svg} alt={d.alt} width={d.height} height={d.height} />
   }
   const top = (
     <Box key="top" flexDirection="column">
-      <Button key="back" plain dimColor label="‹ All reviews" onPress={act.closePack} />
+      <Box flexDirection="row" justifyContent="space-between" gap={1}>
+        <Button key="back" plain dimColor label="‹ All reviews" onPress={act.closePack} />
+        {sizeButton(ctx)}
+      </Box>
       <Box flexDirection="row" gap={1} alignItems="center">
         {ring}
         <Box flexDirection="column" flexShrink={1}>
-          <Text bold>{pack.title}</Text>
+          <Text bold size={titleSize(ctx)}>
+            {pack.title}
+          </Text>
           <Text dimColor wrap="truncate-end">
             {isDesktop ? meta : `${answered} of ${n} answered · ${meta}`}
           </Text>
@@ -724,7 +759,7 @@ export function packView(ctx: Ctx): RenderElement {
   // 2. Which card.
   let stepper: RenderElement
   if (isDesktop && 'Svg' in ui) {
-    const d = stepperSvg(ctx.width, states, at)
+    const d = zoomed(ctx.width, scaleOf(ctx), w => stepperSvg(w, states, at))
     stepper = <ui.Svg key={`stepper-${at}-${answered}`} source={d.svg} alt={d.alt} width={ctx.width} height={d.height} />
   } else {
     stepper = <Text wrap="truncate-end">{states.map((s, i) => (i === at ? `[${GLYPH[s]}]` : GLYPH[s])).join(' ')}</Text>
@@ -771,7 +806,9 @@ export function packView(ctx: Ctx): RenderElement {
           </Text>
         </Text>
         <Box flexDirection="row" justifyContent="space-between" gap={1}>
-          <Text bold>{card.title}</Text>
+          <Text bold size={titleSize(ctx)}>
+            {card.title}
+          </Text>
           <Button key={`copy-card-${card.id}`} plain dimColor label="⧉ Copy" onPress={p => act.copy(cardText(pack, card, draft), p.surface)} />
         </Box>
       </Box>

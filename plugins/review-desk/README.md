@@ -4,6 +4,8 @@ A review desk inside Claude Code. When Claude needs you to answer questions, app
 
 There are no HTML pages to build, no browser to open and no notes to export and paste back. It is made for projects that pair a Claude project folder with a record of truth, such as an Obsidian vault, but it works in any project.
 
+![A question card in the review desk: the progress ring, the card stepper, the question with its evidence and options, and the chat box under it](docs/panel.png)
+
 ## What it does
 
 - **A list of reviews.** Pending reviews show how many cards you have answered; submitted ones stay under *Reviewed* and open read-only with your responses. The status line shows how many reviews are waiting.
@@ -19,11 +21,18 @@ There are no HTML pages to build, no browser to open and no notes to export and 
   | **Read-through** | read a long text section by section, with "Your call" flags, a note and a *Reviewed* tick each |
 
 - **Animated explainers.** Claude sends the scene as data and the desk draws it, on the desktop, as animated SVG: cards, flow, list, timeline, funnel, bars with a threshold, number tiles, a comparison table and a 2 × 2 matrix. Claim chips carry their grade (A–D), and hovering one shows the claim. In the terminal the same scene is drawn as text.
-- **Ask Claude about the card in front of you.** Under each card is a short chat, drawn like Claude Desktop's: your questions in bubbles on the right, Claude's answers on the left, and a box to type in. Each question goes to Claude in the session, which researches it with everything the session has (the web, your project, its notes) and puts the answer back under the card, with its sources. Each card keeps its own conversation.
+- **Ask Claude about the card in front of you.** Each card has its own short chat; see [Chat about a card](#chat-about-a-card).
 - **One card at a time.** A review opens on a numbered stepper (a tick for each card answered), *Previous* and *Next* around a jump list, and the current card in a frame coloured by its type: what the card says, its evidence, then *Your answer*. Submitting sits at the bottom.
 - **Copy.** On the desktop, card text can be selected and copied like any text; a link in it shows its address in brackets so you can copy that too. Lists made mostly of links (evidence, sources) stay clickable instead. Each card and each answer also has a *Copy* button that puts the whole thing on your clipboard as Markdown.
 - **Saved as you go.** Every answer is written to `draft.json` straight away. Close the panel, or end the session, and carry on later.
 - **Submit, and Claude applies it.** Submitting writes `outcome.md` and `outcome.json`, moves the review to `reviewed/`, and queues a prompt that asks Claude to apply the outcome in each record's real home and to confirm with you before writing.
+- **Larger text.** On the desktop, the *Aa* button at the top of the panel steps the text size through normal, large (16 px) and larger (18 px). It changes the `fontSize` setting, so the size you pick stays. Card text, the chat, the scenes, the header and the stepper all grow, and titles step up to the app's heading size.
+
+### Chat about a card
+
+Under every card is a chat about that card. Type a question in the box and press Enter. The desk sends it to Claude in your session, along with the card it is about. Claude researches it with whatever the session can reach (the web, your project, its notes), then puts the answer back under the same card with its sources. Your question shows on the right and Claude's answer on the left. *Copy* puts the question, the answer and the sources on your clipboard as Markdown. Each card keeps its own conversation, saved with the review, and Claude changes no record unless you ask.
+
+![A question about a card on the right, Claude's answer and its source on the left, and the box to ask another](docs/chat.png)
 
 ## Install
 
@@ -51,7 +60,7 @@ To start, ask Claude something like *"put the open questions for this initiative
 Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/settings.json`:
 
 ```json
-{ "pluginConfigs": { "review-desk": { "options": { "folder": "Reviews", "autoOpen": true, "handOff": true, "selectableText": true } } } }
+{ "pluginConfigs": { "review-desk": { "options": { "folder": "Reviews", "autoOpen": true, "handOff": true, "selectableText": true, "fontSize": "normal" } } } }
 ```
 
 | Setting | Default | Effect |
@@ -60,6 +69,7 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 | `autoOpen` | `true` | Opens the panel on the new review, unless you are in the middle of another one |
 | `handOff` | `true` | On submit, queues a prompt asking Claude to apply the outcome |
 | `selectableText` | `true` | On the desktop, draws card text so it can be selected; off draws it as the app's own text, with every link clickable but nothing selectable |
+| `fontSize` | `normal` | How large the desk draws its text on the desktop: `normal` (14 px), `large` (16 px) or `larger` (18 px). The *Aa* button in the panel changes it too. The terminal has one size and ignores it |
 
 ## How it works
 
@@ -109,10 +119,11 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 - **Desktop and terminal.** Animated scenes draw on the desktop. The terminal shows them as text, and the mobile app, which has no text fields yet, shows reviews without the answer boxes.
 - **An answer arrives when Claude has finished its turn.** Your question is sent to the session as a prompt (you see it in the conversation), and Claude answers once it is free; a question asked while Claude is busy waits its turn.
 - **Selectable text is drawn by the mod.** The app's own text elements cannot be selected, so on the desktop card text is drawn as SVG text. It wraps by an estimate of letter widths, keeps simple Markdown (bold, italic, code, lists, quotes, headings), and links in it are not clickable: their addresses show in brackets. Blocks that are mostly links stay the app's own Markdown, clickable but not selectable. Turn *Selectable text* off to draw everything the app's way.
+- **Larger text covers what the desk draws itself.** Buttons, choices, fields, small labels and the app's own Markdown (blocks that are mostly links, or all card text with *Selectable text* off) keep the app's size, since the app gives plugins no way to enlarge them. On a very narrow panel, scenes grow only as far as their layout allows.
 - **The Copy buttons use the system clipboard on the desktop**, as the desktop app has no clipboard path for plugins yet: PowerShell `Set-Clipboard` on Windows, `pbcopy` on macOS, `wl-copy` or `xclip` on Linux.
 - **Text you type is saved when you press Enter or move on.** Typing and then closing the window straight away can lose the last field.
 - **Reviewed items are read-only.** To review something again, ask Claude to publish it again; the new review is filed separately.
-- **The function-hook plugin API is early access** and may change between Claude Code releases. Built and tested against Claude Code 2.1.296.
+- **The function-hook plugin API is early access** and may change between Claude Code releases. Built and tested against Claude Code 2.1.317.
 
 ## Licence
 
