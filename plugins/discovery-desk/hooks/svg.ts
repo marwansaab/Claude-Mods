@@ -134,3 +134,120 @@ export function stripSvg(w: number, steps: StripStep[], current: number): Drawn 
     .join('')
   return { svg: svgDoc(w, 36, line + discs), height: 36, alt }
 }
+
+// ---------- the hub ----------
+
+/** Greedy word wrap to about `per` characters a line, at most `max` lines. */
+export function wrap(text: string, per: number, max = 4): string[] {
+  const words = text.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean)
+  const lines: string[] = []
+  let line = ''
+  for (const w of words) {
+    if (!line) line = w
+    else if ((line + ' ' + w).length <= per) line += ' ' + w
+    else {
+      lines.push(line)
+      line = w
+      if (lines.length === max) break
+    }
+  }
+  if (line && lines.length < max) lines.push(line)
+  if (lines.length === max && words.join(' ').length > lines.join(' ').length) lines[max - 1] = `${lines[max - 1]!.replace(/.{0,1}$/, '')}…`
+  return lines
+}
+
+const lines = (x: number, y: number, list: string[], size: number, cls: string, anchor = 'start') =>
+  list.map((l, i) => `<text x="${x}" y="${(y + i * size * 1.3).toFixed(1)}" font-size="${size}" text-anchor="${anchor}" class="${cls}">${esc(l)}</text>`).join('')
+
+/** The core loop: the main path as boxes joined by arrows, then the states beside it and the flags. */
+export function loopSvg(w: number, loop: { main: string[]; end?: string; side: string[]; flags: string[] }): Drawn {
+  const main = [...loop.main, ...(loop.end ? [loop.end] : [])]
+  const bw = 150
+  const gap = 26
+  const cols = Math.max(1, Math.floor((w - 20 + gap) / (bw + gap)))
+  const per = 22
+  let y = 10
+  let body = ''
+  for (let r = 0; r * cols < main.length; r++) {
+    const row = main.slice(r * cols, r * cols + cols)
+    const wrapped = row.map(s => wrap(s, per))
+    const h = 18 + Math.max(...wrapped.map(l => l.length)) * 14
+    row.forEach((s, i) => {
+      const n = r * cols + i
+      const x = 10 + i * (bw + gap)
+      const isEnd = !!loop.end && n === main.length - 1
+      body += `<g class="in" ${delay(0.06 * n)}><rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="10" class="card" stroke-width="${isEnd ? 3.5 : 1.5}"/>`
+      body += lines(x + 10, y + 18, wrapped[i]!, 11.5, 'ink') + '</g>'
+      if (i < row.length - 1) body += `<path d="M ${x + bw + 4} ${y + h / 2} h ${gap - 10} l -5 -4 m 5 4 l -5 4" fill="none" stroke-width="1.6" class="ln fade" ${delay(0.06 * n + 0.1)}/>`
+    })
+    y += h + 14
+  }
+  const colW = Math.max(160, (w - 30) / 2)
+  const sideCols = w >= 360 ? 2 : 1
+  const sw = sideCols === 2 ? colW : w - 20
+  const sideItems = loop.side.map(s => wrap(s, Math.floor(sw / 6.6), 3))
+  for (let i = 0; i < sideItems.length; i += sideCols) {
+    const pair = sideItems.slice(i, i + sideCols)
+    const h = 14 + Math.max(...pair.map(l => l.length)) * 14
+    pair.forEach((l, k) => {
+      const x = 10 + k * (sw + 10)
+      body += `<g class="fade" ${delay(0.3 + 0.03 * (i + k))}><rect x="${x}" y="${y}" width="${sw}" height="${h}" rx="8" fill="none" stroke-width="1.3" stroke-dasharray="5 4" class="ln"/>${lines(x + 9, y + 16, l, 11, 'dim')}</g>`
+    })
+    y += h + 8
+  }
+  for (const f of loop.flags) {
+    const l = wrap(`⚑ ${f}`, Math.floor((w - 20) / 6.6), 3)
+    const h = 14 + l.length * 14
+    body += `<g class="fade" ${delay(0.5)}><rect x="10" y="${y}" width="${w - 20}" height="${h}" rx="8" class="flag"/>${lines(19, y + 16, l, 11, 'warn')}</g>`
+    y += h + 8
+  }
+  const svg = svgDoc(w, y + 4, body).replace('</style>', '.flag{fill:#fff3e0}.warn{fill:#b26a00}@media (prefers-color-scheme: dark){.flag{fill:#3d2d14}.warn{fill:#ffb74d}}</style>')
+  return { svg, height: y + 4, alt: `The core loop: ${main.join(' → ')}.${loop.side.length ? ` Beside it: ${loop.side.join('; ')}.` : ''}${loop.flags.length ? ` Flags: ${loop.flags.join('; ')}.` : ''}` }
+}
+
+/** Per journey, the chips decided (green) and still waiting (purple). */
+export function progressSvg(w: number, rows: { label: string; decided: number; waiting: number }[]): Drawn {
+  const max = Math.max(1, ...rows.map(r => r.decided + r.waiting))
+  const x0 = 46
+  const bw = Math.max(60, w - x0 - 70)
+  const body = rows
+    .map((r, i) => {
+      const y = 8 + i * 24
+      const d = (bw * r.decided) / max
+      const q = (bw * r.waiting) / max
+      return (
+        `<text x="10" y="${y + 12}" font-size="11.5" font-weight="600" class="ink">${esc(r.label)}</text>` +
+        `<rect x="${x0}" y="${y + 2}" width="${bw}" height="12" rx="6" class="surf"/>` +
+        (d ? `<rect x="${x0}" y="${y + 2}" width="${d.toFixed(1)}" height="12" rx="6" class="t-ok grow" ${delay(0.05 * i)}/>` : '') +
+        (q ? `<rect x="${(x0 + d).toFixed(1)}" y="${y + 2}" width="${q.toFixed(1)}" height="12" rx="6" class="t-q grow" ${delay(0.05 * i + 0.2)}/>` : '') +
+        `<text x="${x0 + bw + 8}" y="${y + 12}" font-size="11" class="dim">${r.decided} · ${r.waiting}</text>`
+      )
+    })
+    .join('')
+  const h = 16 + rows.length * 24
+  return { svg: svgDoc(w, h, body), height: h, alt: rows.map(r => `${r.label}: ${r.decided} decided, ${r.waiting} waiting`).join('; ') }
+}
+
+/** A journey as a map of its steps on one phone: a line of discs coloured by chips, each with its title. */
+export function mapSvg(w: number, steps: { n: number; title: string; sub: string; tone: Tone; isWalked: boolean; isCurrent: boolean }[]): Drawn {
+  const per = Math.max(20, Math.floor((w - 50) / 6.8))
+  let y = 12
+  let body = ''
+  const tops: number[] = []
+  for (const s of steps) {
+    tops.push(y)
+    const title = wrap(`${s.n}. ${s.title}`, per, 2)
+    const fill = s.tone === 'none' ? 'card' : `t-${s.tone}`
+    body +=
+      `<g class="in" ${delay(0.03 * s.n)}>` +
+      (s.isCurrent ? `<circle cx="20" cy="${y + 6}" r="11" fill="none" stroke-width="2.5" class="cur"/>` : '') +
+      `<circle cx="20" cy="${y + 6}" r="7" class="${fill}" stroke-width="1.5"/>` +
+      (s.isWalked ? `<path d="M 16.5 ${y + 6.5} l 2.5 2.5 l 4.5 -5" fill="none" stroke="${s.tone === 'none' ? '#2e7d32' : '#fff'}" stroke-width="1.8" stroke-linecap="round"/>` : '') +
+      lines(38, y + 10, title, 12, 'ink') +
+      (s.sub ? lines(38, y + 10 + title.length * 15.6, [s.sub], 10.5, 'dim') : '') +
+      '</g>'
+    y += 14 + title.length * 15.6 + (s.sub ? 12 : 0)
+  }
+  const line = tops.length > 1 ? `<line x1="20" y1="${tops[0]! + 6}" x2="20" y2="${tops.at(-1)! + 6}" stroke-width="2" class="ln"/>` : ''
+  return { svg: svgDoc(w, y + 4, line + body), height: y + 4, alt: steps.map(s => `${s.n}. ${s.title}${s.sub ? ` (${s.sub})` : ''}`).join('; ') }
+}

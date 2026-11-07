@@ -14,17 +14,21 @@ import {
   cleanWalk,
   emptyNotes,
   handOffPrompt,
+  journeySetPrompt,
   outcomeJson,
   outcomeMarkdown,
   phonePrompt,
   polishPrompt,
   raisedPrompt,
+  readNotesPrompt,
   readDraft,
   readNotes,
   readWalk,
+  scaffoldPrompt,
   summaryOf,
 } from './walk'
-import { homeView, initiativeView, journeyView, walkView } from './view'
+import { homeView, initiativeView, journeyView, newView, walkView } from './view'
+import { readLoop, readStory } from './hub'
 import type { Actions } from './view'
 
 const PANE = 'discovery-desk'
@@ -42,6 +46,9 @@ const START_VIEW: DeskView = {
   stepView: 'all',
   isContextOpen: false,
   isPlaying: false,
+  hubTab: 'journeys',
+  questionFilter: 'undecided',
+  isMapOpen: false,
   card: 0,
   part: {},
   isSummaryOpen: false,
@@ -93,6 +100,7 @@ const cfg = {
   vaultWriteTools: new RegExp(VAULT_WRITES, 'i'),
   valueWords: VALUE_WORDS,
   figurePattern: FIGURES,
+  scaffold: '',
 }
 
 /** The play timer: a module variable, so a reload stops playback (the view is reset to match on load). */
@@ -172,7 +180,11 @@ async function readInitiative($: EngineInterface, folder: string): Promise<Loade
     const html = e.file ? await readText($, join(folder, ...e.file.split('/'))) : undefined
     journeys[e.code] = html === undefined ? { code: e.code, title: e.title, file: e.file, preconditions: [], storyMap: [], alsoInvolved: [], steps: [], problem: 'the page could not be read' } : readJourney(html, e)
   }
-  return { folder, rel: relTo(await $.session.root(), folder), register, journeys }
+  const hub = await readText($, join(folder, 'index.html'))
+  // The README sits beside the UX Prototype folder, or in the prototype folder itself.
+  const parent = /[\\/]UX Prototype$/i.test(folder) ? folder.replace(/[\\/]UX Prototype$/i, '') : folder
+  const readme = (await readText($, join(parent, 'README.md'))) ?? (await readText($, join(folder, 'README.md')))
+  return { folder, rel: relTo(await $.session.root(), folder), register, journeys, loop: hub ? readLoop(hub) : undefined, story: readme ? readStory(readme) : undefined }
 }
 
 /** The initiative a walk names: by register id, or by its folder name. */
@@ -513,7 +525,7 @@ async function submit($: EngineInterface): Promise<void> {
   await update($, view, (x): DeskView => ({ ...viewOf(x), screen: 'home', openId: undefined, openStatus: undefined, card: 0, part: {}, isConfirming: false }))
   await refresh($)
   $.ui.toast(cfg.handOff ? 'Walk submitted and handed to Claude' : 'Walk submitted')
-  if (cfg.handOff) await safely(() => $.prompt.submit({ text: handOffPrompt(current.walk, done) }))
+  if (cfg.handOff) await safely(() => $.prompt.submit({ text: handOffPrompt(current.walk, done, !!current.draft.isPlanOnly) }))
 }
 
 async function openWalk($: EngineInterface, status: WalkStatus, id: string): Promise<void> {
@@ -551,6 +563,10 @@ async function moveTo($: EngineInterface, patch: (v: DeskView) => DeskView): Pro
 }
 
 async function commitField($: EngineInterface, key: string, text: string): Promise<void> {
+  if (key.startsWith('new:')) {
+    await update($, typing, t => ({ ...t, [key]: text }))
+    return
+  }
   await update($, typing, t => Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)))
   if (key.startsWith('ask:')) await ask($, text)
   else if (key.startsWith('t:')) await respond($, key.slice(2), { text })
@@ -637,6 +653,40 @@ function actionsFor($: EngineInterface): Actions {
         const v = viewOf(await read($, view))
         if (v.initiative) await runChecks($, v.initiative, { isOffline })
       }),
+    hubTab: hubTab => run(() => moveTo($, v => ({ ...v, hubTab }))),
+    questionFilter: questionFilter => run(() => moveTo($, v => ({ ...v, questionFilter }))),
+    toggleMap: () => run(() => moveTo($, v => ({ ...v, isMapOpen: !v.isMapOpen }))),
+    planOnly: () => run(() => changeDraft($, d => ({ ...d, isPlanOnly: !d.isPlanOnly }))),
+    journeySet: () =>
+      run(async () => {
+        const l = await read($, loaded)
+        if (!l) return
+        await $.prompt.submit({ text: journeySetPrompt(l) })
+        $.ui.toast('Asked Claude to put the journey set up for review')
+      }),
+    readNotes: () =>
+      run(async () => {
+        const l = await read($, loaded)
+        if (!l) return
+        await $.prompt.submit({ text: readNotesPrompt(l) })
+        $.ui.toast('Asked Claude to put the discovery notes up to read')
+      }),
+    newInitiative: () =>
+      run(async () => {
+        stopPlay()
+        await moveTo($, v => ({ ...v, screen: 'new', isPlaying: false }))
+      }),
+    scaffold: () =>
+      run(async () => {
+        await flushTyping($)
+        const typed = await read($, typing)
+        const f = (k: string) => (typed[`new:${k}`] ?? '').trim()
+        if (!f('id') || !f('name')) return
+        await $.prompt.submit({ text: scaffoldPrompt({ id: f('id'), name: f('name'), storyMap: f('storyMap'), features: f('features'), pitch: f('pitch'), device: f('device') }, cfg.scaffold) })
+        await update($, typing, t => Object.fromEntries(Object.entries(t).filter(([k]) => !k.startsWith('new:'))))
+        await moveTo($, v => ({ ...v, screen: 'home' }))
+        $.ui.toast(`Asked Claude to scaffold ${f('id')}`)
+      }),
     republish: () =>
       run(async () => {
         const current = await read($, open)
@@ -679,7 +729,7 @@ function actionsFor($: EngineInterface): Actions {
         const current = await read($, open)
         const v = viewOf(await read($, view))
         if (!current || !v.openId) return
-        await $.prompt.submit({ text: handOffPrompt(current.walk, join(await rootOf($), 'reviewed', v.openId, FILES.outcome)) })
+        await $.prompt.submit({ text: handOffPrompt(current.walk, join(await rootOf($), 'reviewed', v.openId, FILES.outcome), !!current.draft.isPlanOnly) })
         $.ui.toast('Outcome sent to Claude')
       }),
     copy: (text, surface) => run(() => copyText($, text, surface)),
@@ -916,6 +966,7 @@ export const register: RegisterHooks = (on, options) => {
   }
   cfg.valueWords = typeof options.valueWords === 'string' ? options.valueWords : VALUE_WORDS
   cfg.figurePattern = typeof options.figurePattern === 'string' ? options.figurePattern : FIGURES
+  cfg.scaffold = text(options.scaffold, '')
   cfg.vocab = {
     q: text(options.questionPrefix, DEFAULT_VOCAB.q),
     d: text(options.decisionPrefix, DEFAULT_VOCAB.d),
@@ -1002,11 +1053,13 @@ export const register: RegisterHooks = (on, options) => {
       checks: await read($, checksAtom),
       hasValidator: !!cfg.validator,
       hasOffline: !!cfg.validatorOffline,
+      form: Object.fromEntries(Object.entries(await read($, typing)).filter(([k]) => k.startsWith('new:')).map(([k, v]) => [k.slice(4), v])),
     }
     try {
       if (v.screen === 'walk') return walkView(ctx)
       if (v.screen === 'journey') return journeyView(ctx)
       if (v.screen === 'initiative') return initiativeView(ctx)
+      if (v.screen === 'new') return newView(ctx)
       return homeView(ctx)
     } catch (err) {
       const { Box, Text, Button } = ui

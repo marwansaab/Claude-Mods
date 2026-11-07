@@ -94,8 +94,20 @@ export type InitiativeSummary = {
   problem?: string
 }
 
+/** The hub page's core-loop picture: the main path in order, the states beside it, and the flags. */
+export type Loop = { title?: string; main: string[]; end?: string; side: string[]; flags: string[]; note?: string }
+
 /** One initiative, open in the pane. */
-export type Loaded = { folder: string; rel: string; register: Register; journeys: Record<string, Journey> }
+export type Loaded = {
+  folder: string
+  rel: string
+  register: Register
+  journeys: Record<string, Journey>
+  /** The hub's core loop, when its `index.html` draws one. */
+  loop?: Loop
+  /** The initiative README's story section (Markdown), when it has one. */
+  story?: { title: string; body: string }
+}
 
 // ---------- the owner's own walk notes, per initiative ----------
 
@@ -203,10 +215,30 @@ export type SourceMark = { path: string; label: string; hash: string }
 
 export type PlanRow = { id: string; action: string; target: string; summary?: string }
 
+/** A question or decision someone proposes (a journey-building agent, Claude): not yet in the record. */
+export type ProposalCard = {
+  type: 'proposal'
+  /** The number it would take; the record's next free one is checked when it is recorded. */
+  id: string
+  kind: 'question' | 'decision'
+  title: string
+  /** Markdown: the wording proposed for the row. */
+  detail?: string
+  /** Where it came up: a journey and, optionally, a step index. */
+  raisedIn?: { journey: string; step?: number }
+  /** Who proposed it. */
+  from?: string
+}
+
+export type ReadSection = { id: string; title: string; body: string; flags?: string[] }
+
+/** A long text read section by section, with a note and a tick per section. */
+export type ReadCard = { type: 'read'; id: string; title: string; intro?: string; sections: ReadSection[] }
+
 /** A vault write plan or a closing checklist: the owner says yes or no per row. */
 export type PlanCard = { type: 'plan'; id: string; title: string; intro?: string; rows: PlanRow[] }
 
-export type Card = QuestionCard | DecisionCard | AdrCard | PlanCard | FindingCard
+export type Card = QuestionCard | DecisionCard | AdrCard | PlanCard | FindingCard | ProposalCard | ReadCard
 export type CardType = Card['type']
 
 export type Walk = {
@@ -233,6 +265,8 @@ export type Response = {
   /** The answer has alternatives worth an ADR of its own. */
   toAdr?: boolean
   text?: string
+  /** A section read and ticked. */
+  isDone?: boolean
   rows?: Record<string, boolean>
 }
 
@@ -247,7 +281,13 @@ export type Ask = {
   sources?: { title: string; url?: string }[]
 }
 
-export type Draft = { responses: Record<string, Response>; asks: Ask[]; updatedAt: string }
+export type Draft = {
+  responses: Record<string, Response>
+  asks: Ask[]
+  updatedAt: string
+  /** Hand the outcome back as a plan only: Claude writes nothing, and proposes the writes. */
+  isPlanOnly?: boolean
+}
 
 export type WalkStatus = 'pending' | 'reviewed'
 
@@ -277,8 +317,14 @@ export type OpenWalk = {
 /** How a step is shown: everything, the captions alone, the chips alone, or all but the callouts. */
 export type StepView = 'all' | 'captions' | 'chips' | 'no-notes'
 
+/** The initiative page's views, as the kit's hub draws them. */
+export type HubTab = 'journeys' | 'surfaces' | 'personas' | 'questions' | 'story' | 'progress'
+
+/** Which register items the questions view lists. */
+export type QuestionFilter = 'undecided' | 'decided' | 'other' | 'all'
+
 export type DeskView = {
-  screen: 'home' | 'initiative' | 'journey' | 'walk'
+  screen: 'home' | 'initiative' | 'journey' | 'walk' | 'new'
   tab: WalkStatus
   /** The initiative open (its `UX Prototype` folder). */
   initiative?: string
@@ -289,6 +335,10 @@ export type DeskView = {
   stepView: StepView
   isContextOpen: boolean
   isPlaying: boolean
+  hubTab: HubTab
+  questionFilter: QuestionFilter
+  /** A journey drawn as a map of its steps, beside the step player. */
+  isMapOpen: boolean
   /** The walk open; a journey opened from it returns to it. */
   openId?: string
   openStatus?: WalkStatus

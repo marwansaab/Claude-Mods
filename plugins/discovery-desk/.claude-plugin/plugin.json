@@ -1,7 +1,7 @@
 {
   "name": "discovery-desk",
-  "version": "0.2.0",
-  "description": "A discovery desk panel (/discovery) for UX prototype journeys: walk a journey step by step on iOS or Android, answer its open questions, decisions and ADRs on cards Claude publishes, check the prototype against the vault with drift findings and a vault-first guard, and hand the answers back to be recorded in the vault first.",
+  "version": "0.3.0",
+  "description": "A discovery desk panel (/discovery) for UX prototype journeys: walk a journey step by step on iOS or Android, answer its open questions, decisions and ADRs on cards Claude publishes, check the prototype against the vault with drift findings and a vault-first guard, browse the kit's hub (experience map, personas, questions, story, progress), and hand the answers back to be recorded in the vault first.",
   "author": {
     "name": "Marwan Saab",
     "url": "https://github.com/marwansaab"
@@ -110,6 +110,12 @@
       "title": "Figures to label",
       "description": "A pattern for prices and payouts; a journey that shows one and never says placeholder is flagged. Empty: not checked",
       "default": "[$£€]\\s?\\d|\\b\\d+\\s?(coins?|chips?|gems?|credits?)\\b"
+    },
+    "scaffold": {
+      "type": "string",
+      "title": "Scaffold command",
+      "description": "The project's script that creates a new initiative's prototype folder (e.g. node path/to/scaffold_initiative.js), named to Claude by New initiative. Empty: Claude finds the project's own way",
+      "default": ""
     },
     "questionPrefix": {
       "type": "string",

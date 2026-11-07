@@ -6,6 +6,7 @@ import { LiteralError, parseLiteral } from '../hooks/literal'
 import { DEFAULT_VOCAB, htmlToMd, nearestStep, nextQuestionId, readJourney, readRegister, stepsOn } from '../hooks/prototype'
 import { cardState, cleanWalk, emptyDraft } from '../hooks/walk'
 import { deskChecks, isQuoted, readReport } from '../hooks/checks'
+import { placeholders, progressOf, readLoop, readStory } from '../hooks/hub'
 
 const AT = '2026-11-07T09:00:00.000Z'
 const ROOT = '/proj'
@@ -559,5 +560,157 @@ describe('the vault-first guard and checks after edits', () => {
     // A file outside the prototypes is never guarded.
     const other = await callTool($.tool, { ...edit, file_path: '/proj/notes.md' })
     expect(JSON.stringify(other)).not.toMatch(/guard/)
+  })
+})
+
+// ---------- phase 3: the hub and authoring help ----------
+
+const HUB = `<main class="hub"><h1>Sample Game</h1>
+<h2>The sample loop (draft)</h2>
+<div class="card">
+  <div class="life"><span class="st">Open the game</span><span class="ar">→</span><span class="st">Play a table</span><span class="ar">→</span><span class="st end">Next table</span></div>
+  <div class="life"><span class="st side">Out of chips: a refill</span><span class="st flag">⚑ Every table must stay fair</span></div>
+  <p class="life-note">Drafted on Day 1; the record is canonical.</p>
+</div></main>`
+
+const README = `# INIT-9 — Sample Game
+
+## What is here
+
+The prototype.
+
+## The story the journeys tell
+
+- **Ada Example** plays on the bus on **Day 1** (J01).
+
+## Status
+
+Draft.
+`
+
+const HUB_FILES = {
+  [`${PROTO}/index.html`]: HUB,
+  [`${ROOT}/INIT-9 - Sample/README.md`]: README,
+  [`${PROTO}/journeys/J01-first-run.html`]: J01.replace("preconditions: ['Day 1, on the bus.']", "preconditions: ['Day 1, on the bus.', 'Placeholders, not decisions: the 50-chip refill.']"),
+}
+
+describe('the hub', () => {
+  test('the loop, the story and the placeholders read from the hub page, the README and the journeys', async () => {
+    const loop = readLoop(HUB)
+    expect(loop).toEqual({ title: 'The sample loop (draft)', main: ['Open the game', 'Play a table'], end: 'Next table', side: ['Out of chips: a refill'], flags: ['Every table must stay fair'], note: 'Drafted on Day 1; the record is canonical.' })
+    expect(readLoop('<main>no loop</main>')).toBeUndefined()
+    expect(readStory(README)).toEqual({ title: 'The story the journeys tell', body: '- **Ada Example** plays on the bus on **Day 1** (J01).' })
+    const l = sampleLoaded()
+    const register = l.register
+    const withHolder: Loaded = { ...l, journeys: { J01: readJourney(HUB_FILES[`${PROTO}/journeys/J01-first-run.html`]!, register.journeys[0]!) } }
+    expect(placeholders(withHolder)).toEqual([{ journey: 'J01', text: 'Placeholders, not decisions: the 50-chip refill.' }])
+    expect(progressOf(l, 'J01', DEFAULT_VOCAB)).toEqual({ decided: 0, waiting: 3 })
+  })
+
+  test('the initiative page shows the kit’s hub: experience map, personas, questions, story and progress', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on, true, HUB_FILES)
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const pane = await $.ui.mount({ plugin: 'discovery-desk', surface, ...PANE })
+      await pane.press({ key: 'refresh' })
+      await pane.press({ key: 'ini-INIT-9' })
+      await pane.press({ key: 'hub-surfaces' })
+      expect(await shows(pane, /Purchase sheet/)).toBe(true)
+      expect(await shows(pane, /●J01/)).toBe(true)
+      expect(await shows(pane, /iOS: StoreKit · Android: Play Billing/)).toBe(true)
+      await pane.press({ key: 'hub-personas' })
+      expect(await shows(pane, /Ada Example/)).toBe(true)
+      expect(await shows(pane, /Primary in J01, J02/)).toBe(true)
+      await pane.press({ key: 'hub-questions' })
+      await pane.press({ key: 'qf-undecided' })
+      expect(await shows(pane, /Which table opens first/)).toBe(true)
+      expect(await shows(pane, /Is there a tutorial/)).toBe(false)
+      await pane.press({ key: 'qf-decided' })
+      expect(await shows(pane, /Is there a tutorial/)).toBe(true)
+      await pane.press({ key: 'hub-story' })
+      expect(await shows(pane, /The sample loop \(draft\)/)).toBe(true)
+      expect(await shows(pane, /Every table must stay fair/)).toBe(true)
+      expect(await shows(pane, /Ada Example\** plays on the bus/)).toBe(true)
+      expect(await shows(pane, /the 50-chip refill/)).toBe(true)
+      await pane.press({ key: 'hub-progress' })
+      expect(await shows(pane, /J01.*0 decided.*3 waiting/)).toBe(true)
+      await pane.press({ key: 'hub-journeys' })
+      await pane.press({ key: 'home' })
+      await pane.unmount()
+    }
+
+    const pane = await $.ui.mount({ plugin: 'discovery-desk', surface: 'desktop', ...PANE })
+    await pane.press({ key: 'ini-INIT-9' })
+    // A register item opens the step that shows it.
+    await pane.press({ key: 'hub-questions' })
+    await pane.press({ key: 'qf-undecided' })
+    await pane.press({ key: 'reg-at-Q-01-J01-2' })
+    expect(await shows(pane, /The shop on/)).toBe(true)
+    // The journey map: every step at a glance, the chips beside each.
+    await pane.press({ key: 'map' })
+    expect(await shows(pane, /1\. Setting the scene \(ADR-1\)/)).toBe(true)
+    await pane.press({ key: 'leave' })
+    await pane.press({ key: 'journey-set' })
+    expect(world.prompts.at(-1)).toMatch(/plan card titled "Journey set"/)
+    expect(world.prompts.at(-1)).toMatch(/J01 First run; J02 Missing page/)
+    await pane.press({ key: 'read-notes' })
+    expect(world.prompts.at(-1)).toMatch(/one read card per note/)
+    await pane.unmount()
+  })
+
+  test('a new initiative: the form asks Claude to scaffold it, the record first', { options: { scaffold: 'node scaffold.js' } }, async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    const pane = await $.ui.mount({ plugin: 'discovery-desk', surface: 'terminal', ...PANE })
+    await pane.press({ key: 'new-initiative' })
+    expect(await shows(pane, /An id and a name are needed/)).toBe(true)
+    await pane.input({ key: 'new:id', text: 'INIT-10' })
+    await pane.input({ key: 'new:name', text: 'Next Game' })
+    await pane.input({ key: 'new:pitch', text: 'A calm card game.', kind: 'change' })
+    await pane.press({ key: 'scaffold' })
+    const ask = world.prompts.at(-1) ?? ''
+    expect(ask).toMatch(/`node scaffold\.js --id INIT-10 --name "Next Game" --pitch "A calm card game\."`/)
+    expect(ask).toMatch(/The record comes first/)
+    expect(await shows(pane, /Discovery desk/)).toBe(true)
+    await pane.unmount()
+  })
+
+  test('proposals and read-throughs: accepted, ticked, and handed back as a plan only', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    const taken = await callTool($.tool, { tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_p0', title: 'x', initiative: 'INIT-9', cards: [{ type: 'proposal', id: 'Q-01', title: 'Taken' }] })
+    expect(JSON.stringify(taken)).toMatch(/Q-01 is in the register already/)
+    const res = await callTool($.tool, {
+      tool: 'mcp__discovery-desk__publish_walk',
+      tool_use_id: 'toolu_p1',
+      id: 'INIT-9-proposals',
+      title: 'Proposals and notes',
+      initiative: 'INIT-9',
+      cards: [
+        { type: 'proposal', id: 'Q-03', kind: 'question', title: 'Can players skip the shop?', detail: 'Raised while building J01.', raisedIn: { journey: 'J01', step: 2 }, from: 'the J01 agent' },
+        { type: 'read', id: 'overview', title: 'Overview', sections: [{ title: 'The player', body: 'Plays on the bus.', flags: ['Is the bus right?'] }, { title: 'Evidence', body: 'Inferred.' }] },
+      ],
+    })
+    expect(JSON.stringify(res)).toMatch(/2 cards \(1 proposal, 1 read\)/)
+    const pane = await $.ui.mount({ plugin: 'discovery-desk', surface: 'desktop', ...PANE })
+    expect(await shows(pane, /A new question, not yet in the record · raised in J01 · by the J01 agent/)).toBe(true)
+    await pane.press({ key: 'verb-Q-03-accept' })
+    await pane.press({ key: 'card-next' })
+    expect(await shows(pane, /Your call:(\*\*)? Is the bus right\?/)).toBe(true)
+    await pane.press({ key: 'part-done-overview' })
+    expect(await shows(pane, /Section 2 of 2/)).toBe(true)
+    await pane.press({ key: 'plan-only' })
+    expect(await shows(pane, /Submit as a plan/)).toBe(true)
+    await pane.press({ key: 'submit' })
+    await pane.press({ key: 'submit-anyway' })
+    await pane.unmount()
+    const outcome = world.files.get('/proj/Discovery/reviewed/INIT-9-proposals/outcome.md') ?? ''
+    expect(outcome).toMatch(/Proposal:\*\* Accepted: record it as a new question row first/)
+    expect(outcome).toMatch(/Raised in:\*\* J01, step index 2 \(by the J01 agent\)/)
+    expect(outcome).toMatch(/Reviewed:\*\* 1 of 2 sections/)
+    expect(outcome).toMatch(/## Plan only/)
+    expect(outcome).toMatch(/For accepted proposals/)
+    expect(world.prompts.at(-1)).toMatch(/as a plan only/)
+    expect(world.prompts.at(-1)).toMatch(/write nothing/)
   })
 })

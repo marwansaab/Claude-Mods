@@ -3,13 +3,14 @@
 // The card frame, the answer controls and the per-card chat are adapted from review-desk's view.tsx.
 import type { Elements, RenderElement } from 'claude-code'
 
-import type { Ask, Card, CardType, CheckRun, DeskView, InitiativeSummary, Journey, Loaded, Notes, OpenWalk, Os, Response, Step, StepView, WalkSummary } from '../types'
-import { OS_LABEL, htmlToMd, isUndecided, nearestStep, pick, stepsOn, toneOf } from './prototype'
+import type { Ask, Card, CardType, CheckRun, DeskView, HubTab, InitiativeSummary, Journey, Loaded, Notes, OpenWalk, Os, QuestionFilter, Response, Step, StepView, WalkSummary } from '../types'
+import { OS_LABEL, appearsAt, htmlToMd, isUndecided, nearestStep, pick, stepsOn, toneOf } from './prototype'
+import { placeholders, progressOf, surfaceUse } from './hub'
 import type { Tone, Vocab } from './prototype'
 import { TYPE_LABEL, cardOutcome, cardState, cardText, osDiffText, partKey, rowIsOn, stepPlace } from './walk'
 import type { CardState } from './walk'
 import { bubbleSvg, markdownSvg, thinkingSvg } from './mdsvg'
-import { deskHeaderSvg, ringSvg, stepperSvg, stripSvg } from './svg'
+import { deskHeaderSvg, loopSvg, mapSvg, progressSvg, ringSvg, stepperSvg, stripSvg } from './svg'
 
 type UI = Elements['terminal'] | Elements['desktop'] | Elements['vscode'] | Elements['mobile']
 
@@ -32,6 +33,14 @@ export type Actions = {
   sendRaised: () => void
   runChecks: (isOffline: boolean) => void
   republish: () => void
+  hubTab: (tab: HubTab) => void
+  questionFilter: (f: QuestionFilter) => void
+  toggleMap: () => void
+  planOnly: () => void
+  journeySet: () => void
+  readNotes: () => void
+  newInitiative: () => void
+  scaffold: () => void
   openWalk: (status: DeskView['tab'], id: string) => void
   closeWalk: () => void
   goCard: (n: number) => void
@@ -68,12 +77,14 @@ export type Ctx = {
   /** Whether a project validator is set, and whether it has a run without the record. */
   hasValidator: boolean
   hasOffline: boolean
+  /** What is typed in the new-initiative form so far, by field. */
+  form: Record<string, string>
 }
 
 const GLYPH: Record<CardState, string> = { done: '●', partial: '◐', open: '○' }
 /** The kit's chip colours: purple an open question, blue a proposal, green decided. */
 export const TONE_COLOR: Record<Tone, string> = { q: '#9575CD', d: '#42A5F5', ok: '#66BB6A', off: '#8D8B85', none: '#8D8B85' }
-const TYPE_COLOR: Record<CardType, string> = { question: '#9575CD', decision: '#42A5F5', adr: '#42A5F5', plan: '#EC407A', finding: '#FFA726' }
+const TYPE_COLOR: Record<CardType, string> = { question: '#9575CD', decision: '#42A5F5', adr: '#42A5F5', plan: '#EC407A', finding: '#FFA726', proposal: '#9575CD', read: '#8D8B85' }
 const SEVERITY_COLOR: Record<string, string> = { high: '#EF5350', medium: '#FFA726', low: '#8D8B85' }
 const when = (iso?: string) => (iso ? iso.slice(0, 16).replace('T', ' ') : '')
 const bar = (done: number, total: number, width = 10) => {
@@ -210,7 +221,10 @@ export function homeView(ctx: Ctx): RenderElement {
         </Text>
       )}
       {shown.map(w => walkRow(ctx, w))}
-      {label(ui, 'Initiatives', 'ini-h')}
+      <Box key="ini-head" flexDirection="row" gap={1} alignItems="center" justifyContent="space-between">
+        {label(ui, 'Initiatives', 'ini-h')}
+        <Button key="new-initiative" plain dimColor label="＋ New initiative" onPress={act.newInitiative} />
+      </Box>
       {initiatives.length === 0 && <Text dimColor>No UX prototype found: the desk looks for a prototype.js in each folder under the prototype root (setting prototypeRoot), or in its UX Prototype folder.</Text>}
       {initiatives.map(i => (
         <Box key={`ini-${i.folder}`} flexDirection="column">
@@ -294,6 +308,36 @@ export function initiativeView(ctx: Ctx): RenderElement {
           <Button key="send-raised" variant="primary" label="Hand them to Claude" onPress={act.sendRaised} />
         </Box>
       )}
+      <Box key="hub-tabs" flexDirection="row" gap={1} flexWrap="wrap">
+        {HUB_TABS.map(tab => (
+          <Button key={`hub-${tab.id}`} variant={ctx.view.hubTab === tab.id ? 'primary' : 'secondary'} label={tab.label} onPress={() => act.hubTab(tab.id)} />
+        ))}
+      </Box>
+      {ctx.view.hubTab === 'journeys' ? journeysList(ctx) : hubView(ctx)}
+      <Box key="authoring" flexDirection="row" gap={1} flexWrap="wrap">
+        <Button key="journey-set" plain dimColor label="✻ Review the journey set" onPress={act.journeySet} />
+        <Button key="read-notes" plain dimColor label="✻ Read the discovery notes" onPress={act.readNotes} />
+      </Box>
+    </Box>
+  )
+}
+
+const HUB_TABS: { id: HubTab; label: string }[] = [
+  { id: 'journeys', label: 'Journeys' },
+  { id: 'surfaces', label: 'Experience map' },
+  { id: 'personas', label: 'Personas' },
+  { id: 'questions', label: 'Questions' },
+  { id: 'story', label: 'Story' },
+  { id: 'progress', label: 'Progress' },
+]
+
+function journeysList(ctx: Ctx): RenderElement {
+  const { ui, act, notes } = ctx
+  const loaded = ctx.loaded!
+  const { Box, Text, Button } = ui
+  const r = loaded.register
+  return (
+    <Box key="journeys" flexDirection="column" gap={1}>
       {label(ui, 'Journeys, in story-map order', 'j-h')}
       {r.journeys.map(e => {
         const j = loaded.journeys[e.code]
@@ -317,6 +361,210 @@ export function initiativeView(ctx: Ctx): RenderElement {
           </Box>
         )
       })}
+    </Box>
+  )
+}
+
+const FILTERS: { id: QuestionFilter; label: string }[] = [
+  { id: 'undecided', label: 'Open and proposed' },
+  { id: 'decided', label: 'Decided' },
+  { id: 'other', label: 'Set aside' },
+  { id: 'all', label: 'All' },
+]
+
+/** The hub's other views: the experience map, personas, the questions register, the story and progress. */
+function hubView(ctx: Ctx): RenderElement {
+  const { ui, act, loaded, view, vocab } = ctx
+  const { Box, Text, Button } = ui
+  const l = loaded!
+  const r = l.register
+  const isSvg = ctx.isDesktop && 'Svg' in ui
+  const w = Math.max(240, ctx.width - 8)
+  switch (view.hubTab) {
+    case 'surfaces': {
+      const use = surfaceUse(l)
+      return (
+        <Box key="surfaces" flexDirection="column" gap={1}>
+          <Text dimColor>Each place the product appears, and each surface the OS, a store or the ad network draws around it, with the journeys that show it.</Text>
+          {r.surfaces.map(s => {
+            const isOurs = /^ours$/i.test(s.owner ?? '')
+            const module = !s.module ? '' : typeof s.module === 'string' ? s.module : `iOS: ${s.module.ios ?? 'none'} · Android: ${s.module.android ?? 'none'}`
+            return (
+              <Box key={`surface-${s.key}`} flexDirection="column">
+                <Text wrap="truncate-end">
+                  <Text color={isOurs ? '#26A69A' : '#8D8B85'} bold>
+                    {isOurs ? '▣ ' : '□ '}
+                    {s.name}
+                  </Text>
+                  <Text dimColor> · {isOurs ? 'ours' : `drawn by ${s.owner ?? 'nobody named'}`}</Text>
+                </Text>
+                {module && <Text dimColor wrap="truncate-end">    {module}</Text>}
+                <Text wrap="truncate-end">
+                  {'    '}
+                  {r.journeys.map(j => (
+                    <Text key={`use-${s.key}-${j.code}`} color={use[s.key]?.includes(j.code) ? '#D97757' : undefined} dimColor={!use[s.key]?.includes(j.code)}>
+                      {use[s.key]?.includes(j.code) ? `●${j.code} ` : `·${j.code} `}
+                    </Text>
+                  ))}
+                </Text>
+              </Box>
+            )
+          })}
+          {r.surfaces.length === 0 && <Text dimColor>The register lists no surfaces.</Text>}
+        </Box>
+      )
+    }
+    case 'personas':
+      return (
+        <Box key="personas" flexDirection="column" gap={1}>
+          {r.personas.map(p => (
+            <Box key={`persona-${p.id}`} flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
+              <Text wrap="truncate-end">
+                <Text bold>{p.name ?? p.id}</Text>
+                <Text dimColor>
+                  {' '}
+                  · {p.id}
+                  {p.archetype ? ` · ${p.archetype}` : ''}
+                </Text>
+                {p.status && p.status !== 'active' ? <Text color="#FFA726"> {p.status} persona</Text> : ''}
+              </Text>
+              {(p.role || p.team) && <Text dimColor>{[p.role, p.team].filter(Boolean).join(' · ')}</Text>}
+              {md(ui, p.summary, `ps-${p.id}`)}
+              <Text dimColor wrap="truncate-end">
+                Primary in {r.journeys.filter(j => j.persona === p.id).map(j => j.code).join(', ') || 'no journey'}
+              </Text>
+            </Box>
+          ))}
+          {r.personas.length === 0 && <Text dimColor>The register lists no personas.</Text>}
+        </Box>
+      )
+    case 'questions': {
+      const f = view.questionFilter
+      const items = r.items.filter(i => {
+        const tone = toneOf(i, vocab)
+        return f === 'all' || (f === 'undecided' ? tone === 'q' || tone === 'd' : f === 'decided' ? tone === 'ok' : tone === 'off' || tone === 'none')
+      })
+      const shown = items.slice(0, 60)
+      return (
+        <Box key="questions" flexDirection="column" gap={1}>
+          <Box flexDirection="row" gap={1} flexWrap="wrap">
+            {FILTERS.map(x => (
+              <Button key={`qf-${x.id}`} plain dimColor={f !== x.id} label={`${f === x.id ? '◉' : '○'} ${x.label}`} onPress={() => act.questionFilter(x.id)} />
+            ))}
+          </Box>
+          {shown.map(i => {
+            const at = appearsAt(Object.values(l.journeys), i.id).slice(0, 4)
+            return (
+              <Box key={`reg-${i.id}`} flexDirection="column">
+                {chip(ctx, i.id, `regchip-${i.id}`)}
+                {i.detail && (
+                  <Text dimColor wrap="truncate-end">
+                    {'    '}
+                    {htmlToMd(i.detail).replace(/\*\*/g, '')}
+                  </Text>
+                )}
+                {at.length > 0 && (
+                  <Box flexDirection="row" gap={1} flexWrap="wrap" paddingLeft={4}>
+                    {at.map(a => (
+                      <Button key={`reg-at-${i.id}-${a.journey}-${a.step}`} plain dimColor label={`${a.journey} step ${a.step + 1} ›`} onPress={() => act.openJourney(a.journey, a.step)} />
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            )
+          })}
+          <Text dimColor>
+            {items.length > shown.length ? `Showing ${shown.length} of ${items.length}.` : `${items.length} item${items.length === 1 ? '' : 's'}.`} Mirrored from the record, which is canonical.
+          </Text>
+        </Box>
+      )
+    }
+    case 'story': {
+      const held = placeholders(l)
+      const cast = r.personas.map(p => `- **${p.name ?? p.id}** (${p.id})${p.team ? ` · ${p.team}` : ''}`).join('\n')
+      const loop = l.loop
+      let picture: RenderElement | null = null
+      if (loop) {
+        if (isSvg && 'Svg' in ui) {
+          const d = loopSvg(w, loop)
+          picture = <ui.Svg key="loop" source={d.svg} alt={d.alt} width={w} height={d.height} />
+        } else
+          picture = md(ui, [loop.main.join(' → ') + (loop.end ? ` → **${loop.end}**` : ''), ...loop.side.map(s => `- ${s}`), ...loop.flags.map(s => `> ⚑ ${s}`)].join('\n\n'), 'loop-text')
+      }
+      return (
+        <Box key="story" flexDirection="column" gap={1}>
+          {loop && <Text bold>{loop.title ?? 'The core loop'}</Text>}
+          {picture}
+          {loop?.note && <Text dimColor>{loop.note}</Text>}
+          {l.story && <Text bold>{l.story.title}</Text>}
+          {l.story ? md(ui, l.story.body, 'story-body') : cast && md(ui, `**The cast**\n\n${cast}`, 'story-cast')}
+          {held.length > 0 && md(ui, `**Placeholders, not decisions**\n\n${held.map(x => `- ${x.journey}: ${x.text}`).join('\n')}`, 'placeholders', true)}
+          {!loop && !l.story && !cast && <Text dimColor>No story yet: the hub draws no loop, the README has no story section, and the register lists no personas.</Text>}
+        </Box>
+      )
+    }
+    case 'progress': {
+      const rows = r.journeys.map(j => ({ label: j.code, ...progressOf(l, j.code, vocab) }))
+      if (isSvg && 'Svg' in ui) {
+        const d = progressSvg(w, rows)
+        return (
+          <Box key="progress" flexDirection="column" gap={1}>
+            <Text dimColor>Per journey: chips decided (green) and still open or proposed (purple).</Text>
+            <ui.Svg key="progress-bars" source={d.svg} alt={d.alt} width={w} height={d.height} />
+          </Box>
+        )
+      }
+      return (
+        <Box key="progress" flexDirection="column">
+          <Text dimColor>Per journey: chips decided, then still open or proposed.</Text>
+          {rows.map(x => (
+            <Text key={`prog-${x.label}`}>
+              {x.label.padEnd(5)} {bar(x.decided, x.decided + x.waiting)} {x.decided} decided · {x.waiting} waiting
+            </Text>
+          ))}
+        </Box>
+      )
+    }
+    default:
+      return <Text dimColor>Nothing to show.</Text>
+  }
+}
+
+// ---------- a new initiative ----------
+
+const NEW_FIELDS: { key: string; caption: string; placeholder: string }[] = [
+  { key: 'id', caption: 'Initiative id', placeholder: 'INIT-006' },
+  { key: 'name', caption: 'Name', placeholder: 'the product name' },
+  { key: 'storyMap', caption: 'Story map id', placeholder: 'SMAP-003 (optional)' },
+  { key: 'features', caption: 'Feature set id', placeholder: 'FEAT-003 (optional)' },
+  { key: 'pitch', caption: 'Pitch', placeholder: 'one sentence (optional)' },
+]
+
+export function newView(ctx: Ctx): RenderElement {
+  drawText(ctx)
+  const { ui, act, form } = ctx
+  const { Box, Text, Button } = ui
+  const isReady = !!form.id?.trim() && !!form.name?.trim()
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Button key="home" plain dimColor label="‹ Discovery desk" onPress={act.home} />
+      <Text bold>Start a new initiative's prototype</Text>
+      <Text dimColor>Claude scaffolds the prototype folder with the project's script, after the record's discovery notes exist. It shows you the write plan first and asks before running anything.</Text>
+      {NEW_FIELDS.map(f => field(ctx, `new:${f.key}`, f.caption, form[f.key], f.placeholder))}
+      {'Select' in ui && (
+        <ui.Select
+          key="new-device"
+          label="Phone"
+          value={form.device || 'phone'}
+          options={[
+            { value: 'phone', label: 'Portrait phone' },
+            { value: 'phone-landscape', label: 'Landscape phone' },
+          ]}
+          onSelect={v => act.type('new:device', v)}
+        />
+      )}
+      <Button key="scaffold" variant={isReady ? 'primary' : 'secondary'} dimColor={!isReady} label="✻ Ask Claude to scaffold it" onPress={() => isReady && act.scaffold()} />
+      {!isReady && <Text dimColor>An id and a name are needed.</Text>}
     </Box>
   )
 }
@@ -394,6 +642,36 @@ function contextBlock(ctx: Ctx, j: Journey, st: Step): RenderElement {
       {md(ui, parts.join('\n\n'), `ctx-${j.code}-${os}`)}
       {ids.length > 0 && <Text bold>Questions, decisions and ADRs in this journey</Text>}
       {ids.map(id => chip(ctx, id, `ctxchip-${id}`, st.chips.includes(id)))}
+    </Box>
+  )
+}
+
+/** The whole journey on one phone at a glance: every step, its chips' colour, its phone, whether walked. */
+function journeyMap(ctx: Ctx, j: Journey, current: Step): RenderElement {
+  const { ui, view, notes } = ctx
+  const { Box, Text } = ui
+  const on = stepsOn(j, view.os)
+  const rows = on.map((st, i) => ({
+    n: i + 1,
+    title: htmlToMd(pick(st.title, view.os)).replace(/\*\*/g, ''),
+    sub: [st.os ? `${OS_LABEL[st.os]} only` : '', st.chips.join(', ')].filter(Boolean).join(' · '),
+    tone: stepTone(ctx, st),
+    isWalked: !!notes?.steps[`${j.code}/${st.index}`]?.isWalked,
+    isCurrent: st.index === current.index,
+  }))
+  if (ctx.isDesktop && 'Svg' in ui) {
+    const w = Math.max(240, ctx.width - 8)
+    const d = mapSvg(w, rows)
+    return <ui.Svg key={`map-${j.code}-${view.os}-${current.index}`} source={d.svg} alt={d.alt} width={w} height={d.height} />
+  }
+  return (
+    <Box key="map" flexDirection="column">
+      {rows.map(x => (
+        <Text key={`map-${x.n}`} wrap="truncate-end" color={x.tone === 'none' ? undefined : TONE_COLOR[x.tone]} bold={x.isCurrent}>
+          {x.isCurrent ? '▸' : ' '} {x.isWalked ? '✓' : '•'} {x.n}. {x.title}
+          {x.sub ? <Text dimColor> · {x.sub}</Text> : ''}
+        </Text>
+      ))}
     </Box>
   )
 }
@@ -491,9 +769,11 @@ export function journeyView(ctx: Ctx): RenderElement {
           <Button key={`os-${o}`} variant={o === os ? 'primary' : 'secondary'} label={OS_LABEL[o]} onPress={() => act.setOs(o)} />
         ))}
         <Button key="context" plain dimColor={!view.isContextOpen} label={`${view.isContextOpen ? '▾' : '▸'} Context`} onPress={act.toggleContext} />
+        <Button key="map" hotkey="m" plain dimColor={!view.isMapOpen} label={`${view.isMapOpen ? '▾' : '▸'} Map`} onPress={act.toggleMap} />
       </Box>
       {view.isContextOpen && contextBlock(ctx, j, st)}
       {strip}
+      {view.isMapOpen && journeyMap(ctx, j, st)}
       <Box key={`step-${key}`} flexDirection="column" gap={1} borderStyle="round" borderColor={TONE_COLOR[stepTone(ctx, st)]} paddingX={1}>
         <Text wrap="truncate-end">
           <Text dimColor>
@@ -530,7 +810,7 @@ export function journeyView(ctx: Ctx): RenderElement {
         <Button key="polish" label="✻ Polish this journey" onPress={() => act.polish(j.code)} />
       </Box>
       <Text dimColor wrap="truncate-end">
-        j k step · n next chip · p play · w walked · r restart
+        j k step · n next chip · p play · w walked · r restart · m map
       </Text>
     </Box>
   )
@@ -684,6 +964,82 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
               field(ctx, `t:${card.id}`, r?.choice === 'amend' ? (isAdr ? 'Changes to the clauses' : 'Changes') : isAdr ? 'Comment' : "Owner's call", r?.text, r?.choice === 'amend' ? 'what to change' : 'optional'),
             )
           : null,
+      }
+    }
+    case 'proposal':
+      return {
+        content: col(
+          `c-${card.id}`,
+          <Text key={`pk-${card.id}`} dimColor wrap="truncate-end">
+            {`A new ${card.kind}, not yet in the record${card.raisedIn ? ` · raised in ${card.raisedIn.journey}` : ''}${card.from ? ` · by ${card.from}` : ''}`}
+          </Text>,
+          md(ui, card.detail, `pd-${card.id}`),
+          card.raisedIn ? (
+            <Button key={`pr-at-${card.id}`} plain onPress={() => ctx.act.openJourney(card.raisedIn!.journey, card.raisedIn!.step ?? 0)}>
+              Open {card.raisedIn.journey}
+              {card.raisedIn.step !== undefined ? `, ${stepPlace(ctx.loaded?.journeys[card.raisedIn.journey], card.raisedIn.step, view.os)}` : ''}
+              <Text dimColor> ›</Text>
+            </Button>
+          ) : null,
+        ),
+        answer: isPending
+          ? col(
+              `a-${card.id}`,
+              verbs(ctx, card.id, r?.choice, [
+                { id: 'accept', label: 'Accept' },
+                { id: 'amend', label: 'Accept with changes' },
+                { id: 'reject', label: 'Reject' },
+              ]),
+              field(ctx, `t:${card.id}`, r?.choice === 'amend' ? 'Changes to the wording' : 'Comment', r?.text, r?.choice === 'amend' ? 'the wording to record' : 'optional'),
+            )
+          : null,
+      }
+    case 'read': {
+      const n = card.sections.length
+      const at = Math.min(view.part[card.id] ?? 0, n - 1)
+      const s = card.sections[at]
+      if (!s) return { content: <Text dimColor>This read-through has no sections.</Text>, answer: null }
+      const key = partKey(card.id, s.id)
+      const sr = draft.responses[key]
+      const isLast = at >= n - 1
+      return {
+        content: col(
+          `c-${card.id}`,
+          at === 0 && md(ui, card.intro, `ri-${card.id}`, true),
+          n > 1 && 'Select' in ui ? (
+            <ui.Select
+              key={`jump-${card.id}`}
+              label="Section"
+              value={String(at)}
+              options={card.sections.map((x, i) => ({ value: String(i), label: `${i + 1}. ${x.title}${draft.responses[partKey(card.id, x.id)]?.isDone ? '  ✓' : ''}` }))}
+              onSelect={v => ctx.act.goPart(card.id, Number(v))}
+            />
+          ) : null,
+          <Text key={`rh-${card.id}`}>
+            <Text dimColor>
+              Section {at + 1} of {n} ·{' '}
+            </Text>
+            <Text bold>{s.title}</Text>
+          </Text>,
+          md(ui, (s.flags ?? []).map(f => `> **Your call:** ${f}`).join('\n\n'), `rf-${card.id}-${at}`),
+          md(ui, s.body, `rb-${card.id}-${at}`),
+          <Box key={`rn-${card.id}`} flexDirection="row" gap={1} flexWrap="wrap">
+            <Button key={`part-prev-${card.id}`} plain dimColor={at === 0} label="‹ Section" onPress={() => ctx.act.goPart(card.id, Math.max(0, at - 1))} />
+            {isPending && (
+              <Button
+                key={`part-done-${card.id}`}
+                variant={sr?.isDone ? 'secondary' : 'primary'}
+                label={sr?.isDone ? '✓ Reviewed' : `Reviewed${isLast ? '' : ', next ›'}`}
+                onPress={() => {
+                  ctx.act.respond(key, { isDone: !sr?.isDone })
+                  if (!sr?.isDone && !isLast) ctx.act.goPart(card.id, at + 1)
+                }}
+              />
+            )}
+            <Button key={`part-next-${card.id}`} plain dimColor={isLast} label="Section ›" onPress={() => ctx.act.goPart(card.id, Math.min(n - 1, at + 1))} />
+          </Box>,
+        ),
+        answer: isPending ? field(ctx, `t:${key}`, 'Note on this section', sr?.text, 'optional') : null,
       }
     }
     case 'finding':
@@ -1009,7 +1365,8 @@ export function walkView(ctx: Ctx): RenderElement {
           </Box>
         ) : (
           <Box key="footer" flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
-            <Button key="submit" variant={answered === n ? 'primary' : 'secondary'} label="Submit walk" onPress={() => (answered === n ? act.submit() : act.confirm(true))} />
+            <Button key="submit" variant={answered === n ? 'primary' : 'secondary'} label={draft.isPlanOnly ? 'Submit as a plan' : 'Submit walk'} onPress={() => (answered === n ? act.submit() : act.confirm(true))} />
+            <Button key="plan-only" plain dimColor={!draft.isPlanOnly} label={`${draft.isPlanOnly ? '☑' : '☐'} Plan only: Claude writes nothing`} onPress={act.planOnly} />
             <Text dimColor>
               {answered} of {n} answered · saved as you go
             </Text>

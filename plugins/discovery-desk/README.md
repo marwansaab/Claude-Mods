@@ -7,6 +7,13 @@ It reads prototypes built the way a *register plus journey pages* kit builds the
 ## What it does
 
 - **A desk of walks and initiatives.** The home lists the walks waiting for you and the ones you submitted, then every initiative with a prototype, with its counts of open questions, proposals and decisions. The status line shows the walks waiting and the open initiative's counts.
+- **The kit's hub, on the initiative page.** Tabs for the hub's views:
+  - **Journeys**, in story-map order, with persona, status, steps, walked and undecided counts.
+  - **Experience map**: every surface, who draws it and its API on each phone, and the journeys that show it.
+  - **Personas**, with a *proposed persona* tag until real people back them.
+  - **Questions**: the register's questions, decisions and ADRs, filtered by open and proposed, decided, set aside or all. Each opens the journey steps that show it.
+  - **Story**: the hub's core loop as an animated flow, the README's story section, and every sentence the journeys label a placeholder.
+  - **Progress**: per journey, chips decided against chips still waiting.
 - **A journey player.** You step through a journey with the context the kit shows beside the phone: persona, use case, trigger, preconditions, outcome, what differs between iOS and Android, story-map steps and surfaces. Each step shows its title, the screen it is on, its caption, its chips and its callouts.
 - **Cards for each open question, proposed decision and ADR**, published by Claude and framed by the desk from the register. Each card shows the item's status, the journey steps that show it, what differs on each phone, the evidence and the linked risks, assumptions and experiments.
 - **Checks, as findings on the desk.** **Run checks** on an initiative runs the desk's own checks and, when you name it, the project's own validator. What they find goes on the desk as one walk of finding cards, for you to accept or reject.
@@ -31,6 +38,7 @@ It reads prototypes built the way a *register plus journey pages* kit builds the
 | ⟲ Restart | `r` | Back to the first step |
 | Walked | `w` | Ticks the step as walked on this phone; the ring counts them |
 | All / Captions only / Chips only / Hide callouts | | What a step shows |
+| ▸ Map | `m` | The whole journey on this phone at a glance: each step's title, chips and colour, and whether it was walked |
 | Note on this step | | Your note, handed over with the next walk you submit |
 | Raise a question here | | A new open question, numbered after the register's highest. It waits on the initiative page until you hand it to Claude or submit a walk |
 | 📱 Open on iOS / Android | | Asks Claude to open this step of the real page in the browser pane |
@@ -46,7 +54,18 @@ The keys work while the panel has the focus.
 | **Decision** (`D-NN`) | approve, approve with changes, or reject, with the owner's call |
 | **ADR** | decide it in place, decide with changes to its clauses, or keep it proposed |
 | **Plan** | say yes or no to each row of a write plan or a closing checklist, then go ahead or cancel |
+| **Proposal** | accept, accept with changes to the wording, or reject a new question or decision that someone proposed (a journey-building agent, Claude); accepted ones go into the record first |
+| **Read-through** | read a discovery note section by section, with "Your call" flags, a note and a *Reviewed* tick per section |
 | **Finding** | accept (for drift: fix toward the record), reject or discuss, with a reply; the prototype's words and the record's are shown |
+
+Any walk can be submitted as a **plan only**: tick it beside *Submit*, and Claude writes nothing; it puts the write plan on the desk and outlines the changes instead.
+
+### Authoring help
+
+- **＋ New initiative** on the home asks for an id, a name, the story map and feature set ids, a pitch and the phone, then asks Claude to scaffold the prototype with the project's script (`scaffold`), after the record's discovery notes exist and with the write plan shown first.
+- **Review the journey set** asks Claude to put the initiative's journeys up as a plan, one row per journey: keep, change, add or drop.
+- **Read the discovery notes** asks Claude to put the overview, personas, story map and feature set up as read-throughs.
+- **Proposals from agents:** the agents that build journeys hand their new questions and decisions to Claude, who puts them up as proposal cards, so nothing reaches the record before you accept it.
 
 Chips and frames keep the kit's colours: purple for an open question, blue for a proposal, green for a decision.
 
@@ -65,7 +84,7 @@ Answer `y` to add the marketplace, then choose a scope. A mod installed this way
 | Command | Does |
 | --- | --- |
 | `/discovery` | Opens the discovery desk, or closes it when it is open |
-| `publish_walk` (tool for Claude) | Puts a walk on the desk: question, decision, ADR, plan and finding cards for one initiative. The desk refuses a walk with a list of what to fix, for example a journey not in the register, or a question card whose id reads as a decision |
+| `publish_walk` (tool for Claude) | Puts a walk on the desk: question, decision, ADR, plan, finding, proposal and read-through cards for one initiative. The desk refuses a walk with a list of what to fix, for example a journey not in the register, or a question card whose id reads as a decision |
 | `list_walks` (tool for Claude) | Lists the initiatives the desk can see and its walks, with the path of each outcome |
 | `answer_question` (tool for Claude) | Puts Claude's answer to a question you asked from a card back on that card |
 
@@ -96,6 +115,7 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 | `vaultWriteTools` | the obsidian-cli-mcp write tools | A pattern for the tools that write the record; a call to one counts as the record written this turn |
 | `valueWords` | cash out, redeem, gift cards… | A pattern for wording that suggests value leaves the product. Empty: not checked |
 | `figurePattern` | prices and coin counts | A pattern for figures a journey should call placeholders. Empty: not checked |
+| `scaffold` | _(none)_ | The project's script that creates a new initiative's prototype folder, named to Claude by **New initiative**. Empty: Claude finds the project's own way |
 | `questionPrefix`, `decisionPrefix`, `adrPrefix` | `Q-`, `D-`, `ADR-` | How the register's ids start |
 | `questionStatuses` | `open, decided, deferred, withdrawn` | A question's status words: the undecided one first, the decided one second |
 | `decisionStatuses` | `proposed, decided, rejected` | A decision's, in that order |
@@ -115,6 +135,7 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 
 - **Reading.** On session start and on refresh, the desk finds every `prototype.js` under the prototype root. Opening an initiative reads its journey pages. Both are parsed as object literals: anything that is not plain data (a call, a variable, a `${…}` template) stops the read with the line it is on, and the desk shows that instead of the initiative.
 - **Publishing.** Claude publishes with `publish_walk`. The desk checks each card against the register, fills in the item's status and the steps that show it, and writes the walk to `pending/<id>/`. Publishing the same id again keeps your answers for the cards that stayed.
+- **The hub.** Opening an initiative also reads its hub page (`index.html`) for the core loop (the `.life` rows of `.st` states) and its README for the first `##` section about the story, the cast or the world. Both are optional; a view with nothing to show says so.
 - **Checking.** **Run checks**, or the end of a turn that edited a prototype, runs the desk's checks and the validator (with `process.run`, from the project root) and writes what they find as the `<initiative>-checks` walk. Each finding keeps its id from run to run, so your answers survive a re-run. The desk records the last result per initiative for the status line.
 - **Guarding.** A hook on every tool call notes when a record-writing tool runs, and refuses or annotates an edit to a prototype's register or pages when none has run in the turn yet. The count starts again when the main turn ends; a subagent's turn ending does not reset it.
 - **Drawing.** The panel draws from those files, with the view in `$.state` so it survives the mod reloading. Play runs on a timer that a reload stops.
@@ -126,6 +147,7 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 - **Plain-literal prototypes only.** A register or journey page that computes its values cannot be read; the desk says which line stopped it.
 - **The guard knows the record by its tools.** It counts a record write by the tool's name (`vaultWriteTools`) or by an edit under `vaultRoot`; a record written some other way does not count. A change that only mirrors the record (fixing drift) still gets the reminder in `warn` mode, and is refused in `block` mode.
 - **The validator's report is read by its lines.** Only lines that start `ERROR` or `warn` become findings, each read as `<where>: <message>`.
+- **The hub's loop is read from its markup.** Only `.life` rows of `.st` spans (with `end`, `side` and `flag`) become the loop; a hub drawn another way shows none.
 - **Proposed numbers.** A raised question's number comes from the register, which may lag the record. Claude is told to check the record's highest number before recording it.
 - **An answer arrives when Claude has finished its turn.** A question sent from a card, a polish request or an **Open on** request waits its turn in the session.
 - **Text you type is saved when you press Enter or move on.**
