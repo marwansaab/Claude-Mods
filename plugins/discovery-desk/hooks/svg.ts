@@ -50,12 +50,11 @@ export function deskHeaderSvg(w: number, waiting: number, open: number, proposed
   const title = `<text x="${x}" y="32" font-size="17" font-weight="700" class="ink in">Discovery desk</text>`
   const line1 = waiting ? `${waiting} walk${waiting === 1 ? '' : 's'} waiting for you` : 'No walk waiting'
   const line2 = `${initiatives} initiative${initiatives === 1 ? '' : 's'} · ${open} open question${open === 1 ? '' : 's'} · ${proposed} proposed`
-  const body =
-    phone +
-    chips +
-    title +
-    `<g class="fade" ${delay(0.2)}><text x="${x}" y="54" font-size="12.5" class="dim">${esc(line1)}</text><text x="${x}" y="71" font-size="12.5" class="dim">${esc(line2)}</text></g>`
-  return { svg: svgDoc(w, 92, body), height: 92, alt: `Discovery desk: ${line1}; ${line2}.` }
+  const per = Math.max(14, Math.floor((w - x - 10) / 6.6))
+  const said = [...wrap(line1, per, 2), ...wrap(line2, per, 3)]
+  const h = Math.max(92, 54 + (said.length - 1) * 17 + 14)
+  const body = phone + chips + title + `<g class="fade" ${delay(0.2)}>${said.map((l, i) => `<text x="${x}" y="${54 + i * 17}" font-size="12.5" class="dim">${esc(l)}</text>`).join('')}</g>`
+  return { svg: svgDoc(w, h, body), height: h, alt: `Discovery desk: ${line1}; ${line2}.` }
 }
 
 /** One numbered disc per card: a tick when answered, amber when begun, the current one ringed. */
@@ -162,16 +161,25 @@ const lines = (x: number, y: number, list: string[], size: number, cls: string, 
 /** The core loop: the main path as boxes joined by arrows, then the states beside it and the flags. */
 export function loopSvg(w: number, loop: { main: string[]; end?: string; side: string[]; flags: string[] }): Drawn {
   const main = [...loop.main, ...(loop.end ? [loop.end] : [])]
-  const bw = 150
   const gap = 26
-  const cols = Math.max(1, Math.floor((w - 20 + gap) / (bw + gap)))
-  const per = 22
+  const inner = w - 20
+  const cols = Math.max(1, Math.min(main.length, Math.floor((inner + gap) / (130 + gap))))
+  const bw = Math.floor((inner - (cols - 1) * gap) / cols)
+  const per = Math.max(12, Math.floor((bw - 20) / 6.4))
+  const rowGap = 22
   let y = 10
   let body = ''
+  let last: { cx: number; bottom: number } | undefined
   for (let r = 0; r * cols < main.length; r++) {
     const row = main.slice(r * cols, r * cols + cols)
-    const wrapped = row.map(s => wrap(s, per))
+    const wrapped = row.map(s => wrap(s, per, 5))
     const h = 18 + Math.max(...wrapped.map(l => l.length)) * 14
+    // From the last box of the row above, down and across to this row's first box.
+    if (last) {
+      const cx = 10 + bw / 2
+      const mid = last.bottom + rowGap / 2
+      body += `<path d="M ${last.cx} ${last.bottom + 2} V ${mid} H ${cx} V ${y - 3} l -4 -5 m 4 5 l 4 -5" fill="none" stroke-width="1.6" class="ln fade" ${delay(0.06 * r * cols)}/>`
+    }
     row.forEach((s, i) => {
       const n = r * cols + i
       const x = 10 + i * (bw + gap)
@@ -179,13 +187,15 @@ export function loopSvg(w: number, loop: { main: string[]; end?: string; side: s
       body += `<g class="in" ${delay(0.06 * n)}><rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="10" class="card" stroke-width="${isEnd ? 3.5 : 1.5}"/>`
       body += lines(x + 10, y + 18, wrapped[i]!, 11.5, 'ink') + '</g>'
       if (i < row.length - 1) body += `<path d="M ${x + bw + 4} ${y + h / 2} h ${gap - 10} l -5 -4 m 5 4 l -5 4" fill="none" stroke-width="1.6" class="ln fade" ${delay(0.06 * n + 0.1)}/>`
+      last = { cx: x + bw / 2, bottom: y + h }
     })
-    y += h + 14
+    y += h + rowGap
   }
+  y -= rowGap - 14
   const colW = Math.max(160, (w - 30) / 2)
   const sideCols = w >= 360 ? 2 : 1
   const sw = sideCols === 2 ? colW : w - 20
-  const sideItems = loop.side.map(s => wrap(s, Math.floor(sw / 6.6), 3))
+  const sideItems = loop.side.map(s => wrap(s, Math.floor((sw - 18) / 6.2), 6))
   for (let i = 0; i < sideItems.length; i += sideCols) {
     const pair = sideItems.slice(i, i + sideCols)
     const h = 14 + Math.max(...pair.map(l => l.length)) * 14
@@ -196,7 +206,7 @@ export function loopSvg(w: number, loop: { main: string[]; end?: string; side: s
     y += h + 8
   }
   for (const f of loop.flags) {
-    const l = wrap(`⚑ ${f}`, Math.floor((w - 20) / 6.6), 3)
+    const l = wrap(`⚑ ${f}`, Math.floor((w - 38) / 6.2), 6)
     const h = 14 + l.length * 14
     body += `<g class="fade" ${delay(0.5)}><rect x="10" y="${y}" width="${w - 20}" height="${h}" rx="8" class="flag"/>${lines(19, y + 16, l, 11, 'warn')}</g>`
     y += h + 8
@@ -237,6 +247,8 @@ export function mapSvg(w: number, steps: { n: number; title: string; sub: string
   for (const s of steps) {
     tops.push(y)
     const title = wrap(`${s.n}. ${s.title}`, per, 2)
+    // The chips line wraps too: a busy step names many.
+    const sub = s.sub ? wrap(s.sub, Math.floor(per * 1.15), 3) : []
     const fill = s.tone === 'none' ? 'card' : `t-${s.tone}`
     body +=
       `<g class="in" ${delay(0.03 * s.n)}>` +
@@ -244,10 +256,11 @@ export function mapSvg(w: number, steps: { n: number; title: string; sub: string
       `<circle cx="20" cy="${y + 6}" r="7" class="${fill}" stroke-width="1.5"/>` +
       (s.isWalked ? `<path d="M 16.5 ${y + 6.5} l 2.5 2.5 l 4.5 -5" fill="none" stroke="${s.tone === 'none' ? '#2e7d32' : '#fff'}" stroke-width="1.8" stroke-linecap="round"/>` : '') +
       lines(38, y + 10, title, 12, 'ink') +
-      (s.sub ? lines(38, y + 10 + title.length * 15.6, [s.sub], 10.5, 'dim') : '') +
+      lines(38, y + 10 + title.length * 15.6, sub, 10.5, 'dim') +
       '</g>'
-    y += 14 + title.length * 15.6 + (s.sub ? 12 : 0)
+    y += 14 + title.length * 15.6 + sub.length * 13.65
   }
   const line = tops.length > 1 ? `<line x1="20" y1="${tops[0]! + 6}" x2="20" y2="${tops.at(-1)! + 6}" stroke-width="2" class="ln"/>` : ''
-  return { svg: svgDoc(w, y + 4, line + body), height: y + 4, alt: steps.map(s => `${s.n}. ${s.title}${s.sub ? ` (${s.sub})` : ''}`).join('; ') }
+  const h = Math.ceil(y + 4)
+  return { svg: svgDoc(w, h, line + body), height: h, alt: steps.map(s => `${s.n}. ${s.title}${s.sub ? ` (${s.sub})` : ''}`).join('; ') }
 }
