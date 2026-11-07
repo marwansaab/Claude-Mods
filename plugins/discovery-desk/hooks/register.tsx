@@ -101,6 +101,7 @@ const cfg = {
   valueWords: VALUE_WORDS,
   figurePattern: FIGURES,
   scaffold: '',
+  kitFolder: '',
 }
 
 /** The play timer: a module variable, so a reload stops playback (the view is reset to match on load). */
@@ -644,7 +645,7 @@ function actionsFor($: EngineInterface): Actions {
       run(async () => {
         const l = await read($, loaded)
         if (!l) return
-        await $.prompt.submit({ text: phonePrompt(l, code, index, viewOf(await read($, view)).os) })
+        await $.prompt.submit({ text: phonePrompt(l, code, index, viewOf(await read($, view)).os, cfg.kitFolder) })
         $.ui.toast('Asked Claude to open it in the browser pane')
       }),
     sendRaised: () => run(() => sendRaised($)),
@@ -967,6 +968,7 @@ export const register: RegisterHooks = (on, options) => {
   cfg.valueWords = typeof options.valueWords === 'string' ? options.valueWords : VALUE_WORDS
   cfg.figurePattern = typeof options.figurePattern === 'string' ? options.figurePattern : FIGURES
   cfg.scaffold = text(options.scaffold, '')
+  cfg.kitFolder = text(options.kitFolder, '').replace(/[\\/]+$/, '')
   cfg.vocab = {
     q: text(options.questionPrefix, DEFAULT_VOCAB.q),
     d: text(options.decisionPrefix, DEFAULT_VOCAB.d),

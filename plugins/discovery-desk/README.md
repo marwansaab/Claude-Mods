@@ -115,6 +115,7 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 | `vaultWriteTools` | the obsidian-cli-mcp write tools | A pattern for the tools that write the record; a call to one counts as the record written this turn |
 | `valueWords` | cash out, redeem, gift cards… | A pattern for wording that suggests value leaves the product. Empty: not checked |
 | `figurePattern` | prices and coin counts | A pattern for figures a journey should call placeholders. Empty: not checked |
+| `kitFolder` | _(none)_ | Where the shared prototype kit lives; **Open on iOS / Android** tells Claude to start the kit's server from there. Empty: the project's launch configuration names the server |
 | `scaffold` | _(none)_ | The project's script that creates a new initiative's prototype folder, named to Claude by **New initiative**. Empty: Claude finds the project's own way |
 | `questionPrefix`, `decisionPrefix`, `adrPrefix` | `Q-`, `D-`, `ADR-` | How the register's ids start |
 | `questionStatuses` | `open, decided, deferred, withdrawn` | A question's status words: the undecided one first, the decided one second |

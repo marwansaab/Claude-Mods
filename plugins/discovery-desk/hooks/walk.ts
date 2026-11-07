@@ -587,14 +587,17 @@ export function polishPrompt(loaded: Loaded, code: string, vocab: Vocab): string
 }
 
 /** Asks Claude to open a journey on a phone in the browser pane. */
-export function phonePrompt(loaded: Loaded, code: string, index: number, os: Os): string {
+export function phonePrompt(loaded: Loaded, code: string, index: number, os: Os, kitFolder = ''): string {
   const entry = loaded.register.journeys.find(j => j.code === code)
   const journey = loaded.journeys[code]
   const step = journey ? nearestStep(journey, os, index) : undefined
   const at = journey && step ? stepsOn(journey, os).indexOf(step) : 0
+  const server = kitFolder
+    ? `served by the prototype kit's server (the kit is in \`${kitFolder}\`; its README says how to start the server and open a page; start it first if it is not running)`
+    : "served by the project's prototype server (start it first if it is not running; this project's launch configuration names it)"
   return [
     `Open ${loaded.register.initiative.id} journey ${code} on ${OS_LABEL[os]} in the browser pane, at ${stepPlace(journey, step?.index ?? index, os)}.`,
-    `The page is \`${loaded.rel}/${entry?.file ?? ''}\`, served by the project's prototype server (start it first if it is not running; this project's launch configuration names it). Open it with \`?os=${os}\`, then run \`kitPlayer.goto(${Math.max(0, at)})\` (it counts from 0).`,
+    `The page is \`${loaded.rel}/${entry?.file ?? ''}\`, ${server}. Open it with \`?os=${os}\`, then run \`kitPlayer.goto(${Math.max(0, at)})\` (it counts from 0).`,
     'Only open it: change nothing.',
   ].join('\n')
 }

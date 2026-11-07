@@ -4,7 +4,7 @@ import type { On } from 'claude-code'
 import type { Loaded } from '../types'
 import { LiteralError, parseLiteral } from '../hooks/literal'
 import { DEFAULT_VOCAB, htmlToMd, nearestStep, nextQuestionId, readJourney, readRegister, stepsOn } from '../hooks/prototype'
-import { cardState, cleanWalk, emptyDraft } from '../hooks/walk'
+import { cardState, cleanWalk, emptyDraft, phonePrompt } from '../hooks/walk'
 import { deskChecks, isQuoted, readReport } from '../hooks/checks'
 import { placeholders, progressOf, readLoop, readStory } from '../hooks/hub'
 
@@ -208,6 +208,13 @@ describe('publishing a walk', () => {
     expect(bad.problems.join('\n')).toMatch(/"id" is required/)
     const noted = cleanWalk({ title: 'x', cards: [{ type: 'question', id: 'Q-77', title: 'New one', prompt: 'p' }] }, AT, { loaded: sampleLoaded(), vocab: DEFAULT_VOCAB })
     expect(noted.notes.join('')).toMatch(/Q-77 is not in the register/)
+  })
+
+  test('Open on a phone names the kit’s server when the kit folder is set, else the project’s launch configuration', async () => {
+    const l = sampleLoaded()
+    expect(phonePrompt(l, 'J01', 2, 'android', 'Prototype Kit')).toMatch(/the kit is in `Prototype Kit`/)
+    expect(phonePrompt(l, 'J01', 2, 'android')).toMatch(/launch configuration names it/)
+    expect(phonePrompt(l, 'J01', 2, 'android')).toMatch(/\?os=android.*kitPlayer\.goto\(2\)/s)
   })
 
   test('a question is answered once it has a status, and a decided one needs an answer', async () => {

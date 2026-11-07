@@ -111,6 +111,12 @@
       "description": "A pattern for prices and payouts; a journey that shows one and never says placeholder is flagged. Empty: not checked",
       "default": "[$£€]\\s?\\d|\\b\\d+\\s?(coins?|chips?|gems?|credits?)\\b"
     },
+    "kitFolder": {
+      "type": "string",
+      "title": "Prototype kit folder",
+      "description": "Where the shared prototype kit lives (relative to the project root, or absolute); Open on iOS / Android tells Claude to start the kit's server from there. Empty: the project's launch configuration",
+      "default": ""
+    },
     "scaffold": {
       "type": "string",
       "title": "Scaffold command",
