@@ -7,6 +7,7 @@ import { DEFAULT_VOCAB, htmlToMd, nearestStep, nextQuestionId, readJourney, read
 import { cardState, cleanWalk, emptyDraft, phonePrompt } from '../hooks/walk'
 import { deskChecks, isQuoted, readReport } from '../hooks/checks'
 import { placeholders, progressOf, readLoop, readStory } from '../hooks/hub'
+import { deskHeaderSvg, loopSvg, mapSvg } from '../hooks/svg'
 
 const AT = '2026-11-07T09:00:00.000Z'
 const ROOT = '/proj'
@@ -612,6 +613,18 @@ describe('the hub', () => {
     const withHolder: Loaded = { ...l, journeys: { J01: readJourney(HUB_FILES[`${PROTO}/journeys/J01-first-run.html`]!, register.journeys[0]!) } }
     expect(placeholders(withHolder)).toEqual([{ journey: 'J01', text: 'Placeholders, not decisions: the 50-chip refill.' }])
     expect(progressOf(l, 'J01', DEFAULT_VOCAB)).toEqual({ decided: 0, waiting: 3 })
+  })
+
+  test('the drawings fit a narrow pane: the header wraps, the loop keeps its path across rows, a busy step’s chips wrap', async () => {
+    expect(deskHeaderSvg(300, 3, 39, 30, 3).height).toBeGreaterThan(deskHeaderSvg(560, 3, 39, 30, 3).height)
+    const loop = { main: ['Open the game', 'Play a table', 'Count the chips', 'Win or lose'], end: 'Next table', side: [], flags: [] }
+    // One column at 300: four connectors join five boxes; at 560, three to a row, one connector joins the rows.
+    const connectors = (svg: string) => (svg.match(/ V [\d.]+ H [\d.]+ V /g) ?? []).length
+    expect(connectors(loopSvg(300, loop).svg)).toBe(4)
+    expect(connectors(loopSvg(560, loop).svg)).toBe(1)
+    const busy = { n: 1, title: 'A step', sub: Array.from({ length: 12 }, (_, i) => `ADR-v-${100 + i}`).join(', '), tone: 'q' as const, isWalked: false, isCurrent: false }
+    expect(mapSvg(300, [busy]).height).toBeGreaterThan(mapSvg(300, [{ ...busy, sub: 'Q-01' }]).height)
+    expect(Number.isInteger(mapSvg(300, [busy]).height)).toBe(true)
   })
 
   test('the initiative page shows the kit’s hub: experience map, personas, questions, story and progress', async ($, on) => {
