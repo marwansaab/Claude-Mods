@@ -1,0 +1,407 @@
+import { describe, expect, mock, test } from 'claude-code/testing'
+import type { On } from 'claude-code'
+
+import type { Loaded } from '../types'
+import { LiteralError, parseLiteral } from '../hooks/literal'
+import { DEFAULT_VOCAB, htmlToMd, nearestStep, nextQuestionId, readJourney, readRegister, stepsOn } from '../hooks/prototype'
+import { cardState, cleanWalk, emptyDraft } from '../hooks/walk'
+
+const AT = '2026-11-07T09:00:00.000Z'
+const ROOT = '/proj'
+const PROTO = `${ROOT}/INIT-9 - Sample/UX Prototype`
+
+// A made-up initiative: one readable journey, one whose page is missing.
+const REGISTER = `/* Sample register: mirrors the record. */
+window.PROTOTYPE = {
+  initiative: { id: 'INIT-9', name: 'Sample Game', vault: 'Sample-Vault', catalogue: 'Discovery/Sample Journey Catalogue' },
+  personas: {
+    'PERS-1': { name: 'Ada Example', initials: 'AE', archetype: 'Casual player', status: 'proposed', team: 'Leeds, UK · iPhone', summary: 'Plays on the bus.' },
+  },
+  surfaces: {
+    shop: { name: 'Purchase sheet', owner: 'iOS · Android', module: { ios: 'StoreKit', android: 'Play Billing' } },
+  },
+  journeys: [
+    { code: 'J01', title: 'First run', file: 'journeys/J01-first-run.html', persona: 'PERS-1', status: 'draft', surfaces: ['shop'], questions: ['Q-01', 'D-01', 'ADR-1'] },
+    { code: 'J02', title: 'Missing page', file: 'journeys/J02-missing.html', persona: 'PERS-1', surfaces: [], questions: [] },
+  ],
+  questions: {
+    'Q-01': { status: 'open', title: 'Which table opens first?' },
+    'Q-02': { status: 'decided', title: 'Is there a tutorial?' }, // decided last session
+    'D-01': { status: 'proposed', title: 'Ads only on request' },
+    'ADR-1': { status: 'proposed', title: 'Levels in order', detail: "Players can't skip ahead" },
+  },
+};
+`
+
+const J01 = `<!doctype html><html><body class="kit">
+<template id="stage">
+  <section class="screen" id="s-home"><div class="g-screen" data-module="Game · home"><span id="play">Play</span></div></section>
+  <section class="screen" id="s-shop"><div class="h-sheet" data-host="Purchase sheet · drawn by iOS"></div></section>
+</template>
+<script>
+Kit.journey({
+  code: 'J01',
+  title: 'First run',
+  useCase: 'Ada wants to try the game.',
+  trigger: 'Ada opens it on Day 1.',
+  preconditions: ['Day 1, on the bus.'],
+  outcome: 'Ada has played once.',
+  osNotes: { ios: 'iOS draws the purchase sheet.', android: 'Android has a system back button.' },
+  storyMap: ['1.1 Open the game'],
+  steps: [
+    { title: 'Setting the scene', actor: 'PERS-1', caption: 'Ada opens <b>the game</b> &mdash; nothing else yet.', questions: ['ADR-1'],
+      actions: [['ring', '#play', '', 'accent'], ['note', '#play', '<b>ADR-1:</b> levels are played in order.', 'right', 'q']] },
+    { title: 'The back button', os: 'android', actor: 'PERS-1', caption: 'Android only: the back button.', actions: [['ring', '.kit-nav-back']] },
+    { title: { ios: 'The shop on iOS', android: 'The shop on Android' }, screen: 's-shop', actor: 'PERS-1',
+      caption: { ios: 'The App Store sheet.', android: 'The Google Play sheet.' }, questions: ['Q-01', 'D-01'], actions: [] },
+    { title: 'Where things are left', caption: 'Next: J02.', actions: [], },
+  ]
+});
+</script></body></html>`
+
+const WALK = {
+  id: 'INIT-9-J01-walk',
+  title: 'Polish the first run',
+  initiative: 'INIT-9',
+  journeys: ['J01'],
+  label: 'Polishing walk',
+  summary: 'Three calls on the first run.',
+  cards: [
+    {
+      type: 'question',
+      id: 'Q-01',
+      prompt: 'Which table should open first?',
+      options: [
+        { id: 'small', label: 'The small table', description: 'gentle start' },
+        { id: 'big', label: 'The big table' },
+      ],
+      recommended: 'small',
+      osDiff: { ios: 'The same on both.', android: 'The same on both.' },
+      evidence: 'Competitors open small.',
+      linked: [{ id: 'RISK-1', title: 'Players leave early', status: 'open' }],
+    },
+    { type: 'decision', id: 'D-01', proposal: 'Ads are shown only when the player asks.' },
+    { type: 'adr', id: 'ADR-1', proposal: 'Levels are played in order.', clauses: '1. In order, no level list.' },
+    { type: 'plan', id: 'write-plan', title: 'Write plan', rows: [{ action: 'Edit', target: 'Discovery/Sample Journey Catalogue.md', summary: 'Q-01 decided' }] },
+  ],
+}
+
+function memoryWorld(on: On, withPrototype = true) {
+  const files = new Map<string, string>(withPrototype ? [[`${PROTO}/prototype.js`, REGISTER], [`${PROTO}/journeys/J01-first-run.html`, J01]] : [])
+  const prompts: string[] = []
+  const norm = (p: string) => p.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
+  const isDir = (p: string) => [...files.keys()].some(k => k.startsWith(norm(p) + '/'))
+  on('session.root', () => ({ value: ROOT }))
+  on('fs.read', ($, e) => (files.has(norm(e.path)) ? { value: files.get(norm(e.path))! } : { deny: `ENOENT: ${e.path}` }))
+  on('fs.write', ($, e) => {
+    files.set(norm(e.path), e.text)
+    return { value: undefined }
+  })
+  on('fs.exists', ($, e) => ({ value: files.has(norm(e.path)) || isDir(e.path) }))
+  on('fs.list', ($, e) => {
+    const names = new Map<string, 'file' | 'dir'>()
+    const dir = norm(e.path)
+    for (const k of files.keys()) {
+      if (!k.startsWith(dir + '/')) continue
+      const rest = k.slice(dir.length + 1)
+      names.set(rest.split('/')[0]!, rest.includes('/') ? 'dir' : 'file')
+    }
+    return { value: [...names].map(([name, kind]) => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })) }
+  })
+  on('process.run', ($, e) => {
+    const [cmd, from, to] = e.argv
+    if (cmd !== 'mv' || !from || !to) return { value: { exitCode: 1, stdout: '', stderr: 'no', isStdoutTruncated: false, isStderrTruncated: false } }
+    for (const [k, v] of [...files])
+      if (k.startsWith(norm(from) + '/')) {
+        files.delete(k)
+        files.set(norm(to) + k.slice(norm(from).length), v)
+      }
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('prompt.submit', ($, e) => {
+    prompts.push(e.text)
+    return { text: e.text } as never
+  })
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('ui.status', () => ({ value: undefined }) as never)
+  on('ui.toast', () => ({ value: undefined }) as never)
+  return { files, prompts }
+}
+
+const PANE = { component: 'Pane' as const, requestId: 'discovery-desk', props: { title: 'Discovery desk', isFocused: false, bodyColumns: 70, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 60 }, view: {} } }
+
+const shows = async (ui: { findAll: (q: object) => Promise<{ text: string; props: Record<string, unknown> }[]> }, re: RegExp) =>
+  (await ui.findAll({})).some(f => re.test(f.text) || re.test(String(f.props.alt ?? '')))
+
+function sampleLoaded(): Loaded {
+  const register = readRegister(REGISTER)
+  return { folder: PROTO, rel: 'INIT-9 - Sample/UX Prototype', register, journeys: { J01: readJourney(J01, register.journeys[0]!) } }
+}
+
+describe('reading a prototype without running it', () => {
+  test('the literal reader takes what registers are written in', async () => {
+    const { value } = parseLiteral(`{ a: 'it\\'s', "b": [1, -2.5, true, null,], c: \`multi
+line\`, // a comment
+      d: { ios: 'x', android: "y" }, /* another */ }`)
+    expect(value).toEqual({ a: "it's", b: [1, -2.5, true, null], c: 'multi\nline', d: { ios: 'x', android: 'y' } })
+  })
+
+  test('code where a value belongs is refused, saying where', async () => {
+    expect(() => parseLiteral(`{ a: compute() }`)).toThrow(LiteralError)
+    expect(() => parseLiteral(`{ a: \`\${x}\` }`)).toThrow(/template/)
+    expect(() => parseLiteral(`{\n a: 1\n b: 2 }`)).toThrow(/line 3/)
+  })
+
+  test('the register, a journey and its captions read as data', async () => {
+    const l = sampleLoaded()
+    const r = l.register
+    expect(r.initiative.id).toBe('INIT-9')
+    expect(r.items.map(i => `${i.id}:${i.kind}:${i.status}`)).toEqual(['Q-01:question:open', 'Q-02:question:decided', 'D-01:decision:proposed', 'ADR-1:adr:proposed'])
+    const j = l.journeys.J01!
+    expect(j.problem).toBeUndefined()
+    expect(j.steps.map(s => s.screen)).toEqual(['s-home', 's-home', 's-shop', 's-shop'])
+    expect(j.steps[2]!.screenLabel).toBe('Purchase sheet · drawn by iOS')
+    expect(j.steps[0]!.callouts.length).toBe(1)
+    expect(htmlToMd(j.steps[0]!.caption as string)).toBe('Ada opens **the game** — nothing else yet.')
+    expect(stepsOn(j, 'ios').map(s => s.index)).toEqual([0, 2, 3])
+    expect(stepsOn(j, 'android').map(s => s.index)).toEqual([0, 1, 2, 3])
+    // An Android-only step, shown on iOS, lands on the nearest step that plays there.
+    expect(nearestStep(j, 'ios', 1)?.index).toBe(0)
+    expect(nextQuestionId(r, [], DEFAULT_VOCAB)).toBe('Q-03')
+    expect(readJourney('<html>no script</html>', r.journeys[1]!).problem).toMatch(/Kit\.journey/)
+  })
+})
+
+describe('publishing a walk', () => {
+  test('cards are framed from the register: status, title and the steps that show them', async () => {
+    const { walk, problems, notes } = cleanWalk(WALK, AT, { loaded: sampleLoaded(), vocab: DEFAULT_VOCAB })
+    expect(problems).toEqual([])
+    expect(notes).toEqual([])
+    const q = walk!.cards[0]!
+    expect(q.type === 'question' && q.title).toBe('Which table opens first?')
+    expect(q.type === 'question' && q.status).toBe('open')
+    expect(q.type === 'question' && q.appearsAt).toEqual([{ journey: 'J01', step: 2, os: undefined }])
+    const adr = walk!.cards[2]!
+    expect(adr.type === 'adr' && adr.appearsAt.map(a => a.step)).toEqual([0])
+    expect(walk!.initiative.rel).toBe('INIT-9 - Sample/UX Prototype')
+  })
+
+  test('problems are listed, never guessed past; an id not in the register is only noted', async () => {
+    const bad = cleanWalk({ title: 'x', journeys: ['J07'], cards: [{ type: 'question', id: 'D-01', prompt: 'p' }, { type: 'decision', proposal: 'p' }] }, AT, { loaded: sampleLoaded(), vocab: DEFAULT_VOCAB })
+    expect(bad.walk).toBeUndefined()
+    expect(bad.problems.join('\n')).toMatch(/no journey J07/)
+    expect(bad.problems.join('\n')).toMatch(/reads as a decision/)
+    expect(bad.problems.join('\n')).toMatch(/"id" is required/)
+    const noted = cleanWalk({ title: 'x', cards: [{ type: 'question', id: 'Q-77', title: 'New one', prompt: 'p' }] }, AT, { loaded: sampleLoaded(), vocab: DEFAULT_VOCAB })
+    expect(noted.notes.join('')).toMatch(/Q-77 is not in the register/)
+  })
+
+  test('a question is answered once it has a status, and a decided one needs an answer', async () => {
+    const { walk } = cleanWalk(WALK, AT, { loaded: sampleLoaded(), vocab: DEFAULT_VOCAB })
+    const q = walk!.cards[0]!
+    const d = emptyDraft()
+    expect(cardState(q, d, DEFAULT_VOCAB)).toBe('open')
+    d.responses['Q-01'] = { status: 'decided' }
+    expect(cardState(q, d, DEFAULT_VOCAB)).toBe('partial')
+    d.responses['Q-01'] = { status: 'decided', choice: 'small' }
+    expect(cardState(q, d, DEFAULT_VOCAB)).toBe('done')
+    d.responses['Q-01'] = { status: 'deferred' }
+    expect(cardState(q, d, DEFAULT_VOCAB)).toBe('done')
+  })
+})
+
+describe('the desk', () => {
+  test('Claude publishes a walk; the owner answers, walks a step, raises a question and submits', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    const published = await $.tool.call({ tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_1', ...WALK } as never)
+    expect(String((published as { result?: unknown }).result)).toMatch(/Published "Polish the first run" as INIT-9-J01-walk for INIT-9: 4 cards/)
+    expect(world.files.has('/proj/Discovery/pending/INIT-9-J01-walk/walk.json')).toBe(true)
+    expect(world.files.has('/proj/Discovery/README.md')).toBe(true)
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const pane = await $.ui.mount({ plugin: 'discovery-desk', surface, ...PANE })
+      expect(await shows(pane, /Which table opens first\?/)).toBe(true)
+      expect(await shows(pane, /recommended/)).toBe(true)
+      expect(await shows(pane, /open in the register/)).toBe(true)
+      expect(await shows(pane, /RISK-1/)).toBe(true)
+      await pane.unmount()
+    }
+
+    const pane = await $.ui.mount({ plugin: 'discovery-desk', surface: 'desktop', ...PANE })
+    const draftOf = () => JSON.parse(world.files.get('/proj/Discovery/pending/INIT-9-J01-walk/draft.json')!)
+    await pane.press({ key: 'choice-Q-01-small' })
+    await pane.press({ key: 'status-Q-01-decided' })
+    await pane.press({ key: 'adr-Q-01' })
+    expect(draftOf().responses['Q-01']).toEqual({ choice: 'small', status: 'decided', toAdr: true })
+
+    // "Shown in" opens the journey at the step that carries the chip; back returns to the walk.
+    await pane.press({ key: 'at-Q-01-J01-2' })
+    expect(await shows(pane, /Step 2 of 3/)).toBe(true)
+    expect(await shows(pane, /The App Store sheet/)).toBe(true)
+    await pane.press({ key: 'walked' })
+    await pane.input({ key: 'note:J01/2', text: 'The sheet copy is too long' })
+    await pane.input({ key: 'raise:J01/2#0', text: 'Can players skip the shop?' })
+    const notes = JSON.parse(world.files.get('/proj/Discovery/notes/INIT-9.json')!)
+    expect(notes.steps['J01/2']).toEqual({ isWalked: true, os: 'ios', text: 'The sheet copy is too long' })
+    expect(notes.raised[0]).toMatchObject({ id: 'Q-03', journey: 'J01', step: 2, os: 'ios', text: 'Can players skip the shop?' })
+    await pane.press({ key: 'leave' })
+    expect(await shows(pane, /Which table opens first\?/)).toBe(true)
+
+    await pane.press({ key: 'card-next' })
+    await pane.press({ key: 'verb-D-01-approve' })
+    await pane.press({ key: 'card-next' })
+    expect(await shows(pane, /The clauses at stake/)).toBe(true)
+    await pane.press({ key: 'verb-ADR-1-decide' })
+    await pane.press({ key: 'card-next' })
+    await pane.press({ key: 'verb-write-plan-go' })
+    await pane.press({ key: 'submit' })
+    await pane.unmount()
+
+    expect(world.files.has('/proj/Discovery/pending/INIT-9-J01-walk/walk.json')).toBe(false)
+    const outcome = world.files.get('/proj/Discovery/reviewed/INIT-9-J01-walk/outcome.md') ?? ''
+    expect(outcome).toMatch(/Answer:\*\* The small table \(the recommended option\)/)
+    expect(outcome).toMatch(/Status:\*\* `decided`/)
+    expect(outcome).toMatch(/Becomes an ADR:\*\* yes/)
+    expect(outcome).toMatch(/Decision:\*\* Approved → `decided`/)
+    expect(outcome).toMatch(/ADR:\*\* Decided in place → `decided`/)
+    expect(outcome).toMatch(/\*\*Q-03\*\* \(proposed number\) · J01, step 2 of 3 on iOS: Can players skip the shop\?/)
+    expect(outcome).toMatch(/J01, step 2 of 3 on iOS \(The shop on iOS\): The sheet copy is too long/)
+    expect(outcome).toMatch(/- \*\*2026-11-07\*\* — J01 \(iOS\) walked · Q-01 decided \(new ADR for Q-01\) · D-01 accepted · ADR-1 decided/)
+    expect(outcome).toMatch(/The record first,\*\* in the vault `Sample-Vault`/)
+    expect(outcome).toMatch(/score or verdict/)
+    const handOff = world.prompts.at(-1) ?? ''
+    expect(handOff).toMatch(/reviewed\/INIT-9-J01-walk\/outcome\.md/)
+    expect(handOff).toMatch(/write plan on the discovery desk/)
+    expect(handOff).toMatch(/closing checklist/)
+    // The raised question went with the outcome, so it is not handed over twice.
+    expect(JSON.parse(world.files.get('/proj/Discovery/notes/INIT-9.json')!).raised[0].sentAt).toBe(AT)
+
+    const list = await $.ui.mount({ plugin: 'discovery-desk', surface: 'terminal', ...PANE })
+    await list.press({ key: 'tab-reviewed' })
+    await list.press({ key: 'open-reviewed-INIT-9-J01-walk' })
+    expect(await shows(list, /your response/i)).toBe(true)
+    expect(await list.find({ key: 'submit' })).toBeUndefined()
+    await list.unmount()
+  })
+
+  test('a journey plays step by step on either phone, with its context, chips and views', async ($, on) => {
+    const clock = mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const pane = await $.ui.mount({ plugin: 'discovery-desk', surface, ...PANE })
+      // The session's start scans for prototypes; here nothing started one, so Refresh does.
+      await pane.press({ key: 'refresh' })
+      expect(await shows(pane, /Sample Game/)).toBe(true)
+      await pane.press({ key: 'ini-INIT-9' })
+      expect(await shows(pane, /First run/)).toBe(true)
+      expect(await shows(pane, /J02-missing\.html: the page could not be read/)).toBe(true)
+      await pane.press({ key: 'journey-J01' })
+      await pane.press({ key: 'os-ios' })
+      await pane.press({ key: 'restart' })
+      expect(await shows(pane, /Step 1 of 3/)).toBe(true)
+      expect(await shows(pane, /Ada opens/)).toBe(true)
+      expect(await shows(pane, /levels are played in order/)).toBe(true)
+      expect(await shows(pane, /ADR-1/)).toBe(true)
+
+      // The views: captions alone, chips alone.
+      await pane.press({ key: 'view-captions' })
+      expect(await shows(pane, /levels are played in order/)).toBe(false)
+      await pane.press({ key: 'view-chips' })
+      expect(await shows(pane, /Ada opens/)).toBe(false)
+      await pane.press({ key: 'view-all' })
+
+      // Next chip skips to the next step with an open question or a proposal.
+      await pane.press({ key: 'next-chip' })
+      expect(await shows(pane, /The shop on iOS/)).toBe(true)
+      await pane.press({ key: 'os-android' })
+      expect(await shows(pane, /The shop on Android/)).toBe(true)
+      expect(await shows(pane, /Step 3 of 4/)).toBe(true)
+      await pane.press({ key: 'step-prev' })
+      expect(await shows(pane, /Android only/)).toBe(true)
+
+      await pane.press({ key: 'context' })
+      expect(await shows(pane, /Android \(shown\)/)).toBe(true)
+      expect(await shows(pane, /Purchase sheet · drawn by iOS · Android · Play Billing/)).toBe(true)
+      expect(await shows(pane, /proposed persona/)).toBe(true)
+      await pane.press({ key: 'context' })
+      await pane.press({ key: 'leave' })
+      await pane.press({ key: 'home' })
+      await pane.unmount()
+    }
+
+    const pane = await $.ui.mount({ plugin: 'discovery-desk', surface: 'desktop', ...PANE })
+    await pane.press({ key: 'refresh' })
+    await pane.press({ key: 'ini-INIT-9' })
+    await pane.press({ key: 'journey-J01' })
+    await pane.press({ key: 'os-ios' })
+    await pane.press({ key: 'restart' })
+    // Play moves on by itself, and stops at the last step.
+    await pane.press({ key: 'play' })
+    await clock.advance(4500)
+    expect(await shows(pane, /The shop on iOS/)).toBe(true)
+    await clock.advance(4500)
+    expect(await shows(pane, /Where things are left/)).toBe(true)
+    await clock.advance(4500)
+    expect(await shows(pane, /▶ Play/)).toBe(true)
+
+    await pane.press({ key: 'phone' })
+    expect(world.prompts.at(-1)).toMatch(/J01 on iOS in the browser pane, at step 3 of 3 on iOS/)
+    expect(world.prompts.at(-1)).toMatch(/\?os=ios.*kitPlayer\.goto\(2\)/s)
+    await pane.press({ key: 'polish' })
+    const ask = world.prompts.at(-1) ?? ''
+    expect(ask).toMatch(/publish_walk, initiative "INIT-9", journeys \["J01"\]/)
+    expect(ask).toMatch(/- Q-01 \(open\): Which table opens first\?/)
+    expect(ask).toMatch(/- D-01 \(proposed\)/)
+    expect(ask).toMatch(/- ADR-1 \(proposed\)/)
+    expect(ask).not.toMatch(/Q-02/)
+
+    // A question raised here waits on the initiative page until it is handed over.
+    await pane.input({ key: 'raise:J01/3#0', text: 'What comes after J01?' })
+    await pane.press({ key: 'leave' })
+    expect(await shows(pane, /Raised while walking/)).toBe(true)
+    await pane.press({ key: 'send-raised' })
+    expect(world.prompts.at(-1)).toMatch(/\*\*Q-03\*\* \(proposed number\) · J01, step 3 of 3 on iOS: What comes after J01\?/)
+    expect(world.prompts.at(-1)).toMatch(/Record each one in the record first/)
+    expect(await shows(pane, /Raised while walking/)).toBe(false)
+    await pane.unmount()
+  })
+
+  test('Claude answers a question asked from a card, on that card', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    await $.tool.call({ tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_2', ...WALK } as never)
+    const pane = await $.ui.mount({ plugin: 'discovery-desk', surface: 'desktop', ...PANE })
+    await pane.input({ key: 'ask:Q-01#0', text: 'What do other games open with?' })
+    expect(await shows(pane, /Claude is looking into it/)).toBe(true)
+    const askId = /ask "([^"]+)"/.exec(world.prompts.at(-1) ?? '')?.[1] ?? ''
+    expect(askId).not.toBe('')
+    await $.tool.call({ tool: 'mcp__discovery-desk__answer_question', tool_use_id: 'toolu_3', walk: 'INIT-9-J01-walk', ask: askId, answer: 'Most open on a small table.', sources: [{ title: 'Store page', url: 'https://example.com' }] } as never)
+    expect(await shows(pane, /Most open on a small table/)).toBe(true)
+    await pane.unmount()
+  })
+
+  test('a walk for an unknown initiative or with bad cards is refused, and nothing is written', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    const before = world.files.size
+    const unknown = await $.tool.call({ tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_4', ...WALK, initiative: 'INIT-404' } as never)
+    expect(JSON.stringify(unknown)).toMatch(/No UX prototype for \\"INIT-404\\"/)
+    const bad = await $.tool.call({ tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_5', title: 'x', initiative: 'INIT-9', cards: [] } as never)
+    expect(JSON.stringify(bad)).toMatch(/at least one card/)
+    expect(world.files.size).toBe(before)
+    const listed = await $.tool.call({ tool: 'mcp__discovery-desk__list_walks', tool_use_id: 'toolu_6' } as never)
+    expect(JSON.stringify(listed)).toMatch(/INIT-9 Sample Game · INIT-9 - Sample\/UX Prototype · 2 journeys, 1 open, 2 proposed, 1 decided/)
+  })
+
+  test('with no prototype in the project, the desk says where it looks', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    memoryWorld(on, false)
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const pane = await $.ui.mount({ plugin: 'discovery-desk', surface, ...PANE })
+      expect(await shows(pane, /No UX prototype found/)).toBe(true)
+      expect(await shows(pane, /No walk is waiting/)).toBe(true)
+      await pane.unmount()
+    }
+  })
+})

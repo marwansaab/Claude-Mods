@@ -14,6 +14,11 @@
       "description": "A crew panel for standard subagents (/crew): each agent type is a crab character with its own role, look and lines, animated by its status and progress."
     },
     {
+      "name": "discovery-desk",
+      "source": "./plugins/discovery-desk",
+      "description": "A discovery desk panel (/discovery) for UX prototype journeys: walk a journey step by step on iOS or Android, answer its open questions, decisions and ADRs on cards Claude publishes, and hand the answers back to be recorded in the vault first."
+    },
+    {
       "name": "obsidian-cli-mcp-tool-stats",
       "source": "./plugins/obsidian-cli-mcp-tool-stats",
       "description": "Usage stats for the obsidian-cli-mcp server (/cli-mcp-tool-stats): calls, estimated tokens, errors and latency per tool, with hints on heavy results, repeat calls, error patterns and unused schemas, kept across sessions."
