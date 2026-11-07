@@ -3,7 +3,7 @@
 // The card frame, the answer controls and the per-card chat are adapted from review-desk's view.tsx.
 import type { Elements, RenderElement } from 'claude-code'
 
-import type { Ask, Card, CardType, DeskView, InitiativeSummary, Journey, Loaded, Notes, OpenWalk, Os, Response, Step, StepView, WalkSummary } from '../types'
+import type { Ask, Card, CardType, CheckRun, DeskView, InitiativeSummary, Journey, Loaded, Notes, OpenWalk, Os, Response, Step, StepView, WalkSummary } from '../types'
 import { OS_LABEL, htmlToMd, isUndecided, nearestStep, pick, stepsOn, toneOf } from './prototype'
 import type { Tone, Vocab } from './prototype'
 import { TYPE_LABEL, cardOutcome, cardState, cardText, osDiffText, partKey, rowIsOn, stepPlace } from './walk'
@@ -30,6 +30,8 @@ export type Actions = {
   polish: (code: string) => void
   phone: (code: string, index: number) => void
   sendRaised: () => void
+  runChecks: (isOffline: boolean) => void
+  republish: () => void
   openWalk: (status: DeskView['tab'], id: string) => void
   closeWalk: () => void
   goCard: (n: number) => void
@@ -62,12 +64,17 @@ export type Ctx = {
   folder: string
   selectable: boolean
   vocab: Vocab
+  checks: Record<string, CheckRun>
+  /** Whether a project validator is set, and whether it has a run without the record. */
+  hasValidator: boolean
+  hasOffline: boolean
 }
 
 const GLYPH: Record<CardState, string> = { done: '●', partial: '◐', open: '○' }
 /** The kit's chip colours: purple an open question, blue a proposal, green decided. */
 export const TONE_COLOR: Record<Tone, string> = { q: '#9575CD', d: '#42A5F5', ok: '#66BB6A', off: '#8D8B85', none: '#8D8B85' }
-const TYPE_COLOR: Record<CardType, string> = { question: '#9575CD', decision: '#42A5F5', adr: '#42A5F5', plan: '#EC407A' }
+const TYPE_COLOR: Record<CardType, string> = { question: '#9575CD', decision: '#42A5F5', adr: '#42A5F5', plan: '#EC407A', finding: '#FFA726' }
+const SEVERITY_COLOR: Record<string, string> = { high: '#EF5350', medium: '#FFA726', low: '#8D8B85' }
 const when = (iso?: string) => (iso ? iso.slice(0, 16).replace('T', ' ') : '')
 const bar = (done: number, total: number, width = 10) => {
   const n = total ? Math.round((done / total) * width) : 0
@@ -269,6 +276,7 @@ export function initiativeView(ctx: Ctx): RenderElement {
           {r.initiative.vault ? ` · mirrors vault ${r.initiative.vault}` : ''}
         </Text>
       </Box>
+      {checksBox(ctx, loaded.folder)}
       {mine.length > 0 && label(ui, 'Walks waiting', 'mine-h')}
       {mine.map(w => walkRow(ctx, w))}
       {raised.length > 0 && (
@@ -309,6 +317,36 @@ export function initiativeView(ctx: Ctx): RenderElement {
           </Box>
         )
       })}
+    </Box>
+  )
+}
+
+/** The last checks run here, and the buttons that run them. */
+function checksBox(ctx: Ctx, folder: string): RenderElement {
+  const { ui, act } = ctx
+  const { Box, Text, Button } = ui
+  const run = ctx.checks[folder]
+  const found = run ? run.errors + run.warnings : 0
+  const line = !run
+    ? `Not checked yet. ${ctx.hasValidator ? 'Runs the desk’s own checks and the project’s validator.' : 'Runs the desk’s own checks (set validator to add the project’s own).'}`
+    : run.problem
+      ? `Checked ${when(run.at)}: ${run.problem}`
+      : found
+        ? `Checked ${when(run.at)}: ${run.errors} error${run.errors === 1 ? '' : 's'}, ${run.warnings} warning${run.warnings === 1 ? '' : 's'}${run.ranValidator ? '' : ' (desk checks only)'}. They are on the desk as a walk.`
+        : `Checked ${when(run.at)}: everything passes${run.ranValidator ? '' : ' (desk checks only)'}.`
+  return (
+    <Box key="checks" flexDirection="column" borderStyle="round" borderColor={!run ? undefined : run.problem || run.errors ? '#EF5350' : run.warnings ? '#FFA726' : '#66BB6A'} borderDimColor={!run} paddingX={1}>
+      <Text>
+        <Text bold>Checks</Text>
+        <Text color={!run ? undefined : run.problem || run.errors ? '#EF5350' : run.warnings ? '#FFA726' : '#66BB6A'} dimColor={!run}>
+          {' '}
+          {line}
+        </Text>
+      </Text>
+      <Box flexDirection="row" gap={1} flexWrap="wrap">
+        <Button key="run-checks" label="Run checks" onPress={() => act.runChecks(false)} />
+        {ctx.hasValidator && ctx.hasOffline && <Button key="run-checks-offline" plain dimColor label="Run without the record" onPress={() => act.runChecks(true)} />}
+      </Box>
     </Box>
   )
 }
@@ -536,7 +574,7 @@ function verbs(ctx: Ctx, cardId: string, picked: string | undefined, list: { id:
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 /** Where the item shows in the journeys, each a button that opens the step; its links and evidence. */
-function framing(ctx: Ctx, card: Exclude<Card, { type: 'plan' }>): (RenderElement | null)[] {
+function framing(ctx: Ctx, card: Extract<Card, { type: 'question' | 'decision' | 'adr' }>): (RenderElement | null)[] {
   const { ui, act, loaded, view } = ctx
   const { Box, Text, Button } = ui
   const shown = card.appearsAt.filter(a => !a.os || a.os === view.os).slice(0, 8)
@@ -648,6 +686,47 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
           : null,
       }
     }
+    case 'finding':
+      return {
+        content: col(
+          `c-${card.id}`,
+          <Text key={`fm-${card.id}`} wrap="truncate-end">
+            {card.severity ? (
+              <Text color={SEVERITY_COLOR[card.severity]} bold>
+                {card.severity.toUpperCase()}
+              </Text>
+            ) : (
+              ''
+            )}
+            <Text dimColor>
+              {[card.severity ? '' : undefined, card.kind === 'drift' ? 'the prototype differs from the record' : card.kind === 'check' ? 'a check' : card.kind === 'review' ? 'reviewer judgement' : '', card.where]
+                .filter(x => x !== undefined && x !== '')
+                .map(x => `  ·  ${x}`)
+                .join('')}
+            </Text>
+          </Text>,
+          md(ui, card.quote ? `**The prototype says**\n\n> ${card.quote.replace(/\n/g, '\n> ')}` : '', `fq-${card.id}`),
+          md(ui, card.body, `fb-${card.id}`),
+          md(ui, card.suggestion ? `**Suggested change:** ${card.suggestion}` : '', `fs-${card.id}`),
+          md(
+            ui,
+            card.evidence ? `**The record says**${card.evidence.ref ? ` (${card.evidence.ref})` : ''}${card.isRecordUnchecked ? ' _(not checked: the desk cannot read the record; set vaultRoot)_' : ''}\n\n> ${card.evidence.quote.replace(/\n/g, '\n> ')}` : '',
+            `fe-${card.id}`,
+            true,
+          ),
+        ),
+        answer: isPending
+          ? col(
+              `a-${card.id}`,
+              verbs(ctx, card.id, r?.choice, [
+                { id: 'accept', label: card.kind === 'drift' ? 'Accept: fix toward the record' : 'Accept' },
+                { id: 'reject', label: 'Reject' },
+                { id: 'discuss', label: 'Discuss' },
+              ]),
+              field(ctx, `t:${card.id}`, 'Reply', r?.text, 'optional'),
+            )
+          : null,
+      }
     case 'plan': {
       const n = card.rows.length
       const on = card.rows.filter(row => rowIsOn(r, row.id)).length
@@ -844,10 +923,11 @@ export function walkView(ctx: Ctx): RenderElement {
     ) : null
 
   const { content, answer } = cardParts(ctx, card)
-  const color = card.type === 'plan' || card.type === 'question' ? TYPE_COLOR[card.type] : TONE_COLOR[toneOf(ctx.loaded?.register.items.find(i => i.id === card.id), vocab) === 'ok' ? 'ok' : 'd']
+  const color = card.type === 'decision' || card.type === 'adr' ? TONE_COLOR[toneOf(ctx.loaded?.register.items.find(i => i.id === card.id), vocab) === 'ok' ? 'ok' : 'd'] : TYPE_COLOR[card.type]
   const state = states[at] ?? 'open'
   const response = !isPending ? md(ui, cardOutcome(card, draft, vocab).join('\n'), `outcome-${card.id}`) : null
-  const status = card.type !== 'plan' && card.status ? ` · ${card.status} in the register` : ''
+  const status = 'status' in card && card.status ? ` · ${card.status} in the register` : ''
+  const isFramed = card.type === 'question' || card.type === 'decision' || card.type === 'adr'
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -863,6 +943,12 @@ export function walkView(ctx: Ctx): RenderElement {
           </Box>
         </Box>
       </Box>
+      {open.stale?.length ? (
+        <Box key="stale" flexDirection="column" borderStyle="round" borderColor="#FFA726" paddingX={1}>
+          <Text color="#FFA726">Changed since this walk was published: {open.stale.join(', ')}. Its cards may be out of date.</Text>
+          {isPending && <Button key="republish" plain label="Ask Claude to publish it again" onPress={act.republish} />}
+        </Box>
+      ) : null}
       {walk.summary ? (
         <Box key="about" flexDirection="column">
           <Button key="about" plain dimColor={!view.isSummaryOpen} label={`${view.isSummaryOpen ? '▾' : '▸'} About this walk`} onPress={act.toggleSummary} />
@@ -883,7 +969,7 @@ export function walkView(ctx: Ctx): RenderElement {
         <Box flexDirection="column">
           <Text wrap="truncate-end">
             <Text color={color} bold>
-              {TYPE_LABEL[card.type].toUpperCase()} {card.type !== 'plan' ? card.id : ''}
+              {TYPE_LABEL[card.type].toUpperCase()} {isFramed ? card.id : ''}
             </Text>
             <Text dimColor>
               {status} · card {at + 1} of {n}

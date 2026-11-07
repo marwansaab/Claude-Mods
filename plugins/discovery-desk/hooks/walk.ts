@@ -3,13 +3,14 @@
 // The card and outcome code is adapted from review-desk's pack.ts.
 import type { Card, CardType, Draft, Journey, Loaded, Notes, Os, Raised, Register, RegisterItem, Response, Walk, WalkStatus, WalkSummary } from '../types'
 import { OS_LABEL, appearsAt, htmlToMd, isUndecided, kindOf, nearestStep, pick, stepsOn } from './prototype'
+import { filesFor, hashOf, isQuoted } from './checks'
 import type { Vocab } from './prototype'
 
-export const CARD_TYPES: readonly CardType[] = ['question', 'decision', 'adr', 'plan']
+export const CARD_TYPES: readonly CardType[] = ['question', 'decision', 'adr', 'plan', 'finding']
 const MAX_CARDS = 80
 const MAX_PARTS = 60
 
-export const TYPE_LABEL: Record<CardType, string> = { question: 'Question', decision: 'Decision', adr: 'ADR', plan: 'Plan' }
+export const TYPE_LABEL: Record<CardType, string> = { question: 'Question', decision: 'Decision', adr: 'ADR', plan: 'Plan', finding: 'Finding' }
 
 export const emptyDraft = (at = ''): Draft => ({ responses: {}, asks: [], updatedAt: at })
 export const emptyNotes = (at = ''): Notes => ({ steps: {}, raised: [], updatedAt: at })
@@ -34,8 +35,11 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim
 
 // ---------- validation ----------
 
-/** What a walk is checked against: the initiative as read from disk. */
-export type WalkContext = { loaded: Loaded; vocab: Vocab }
+/**
+ * What a walk is checked against: the initiative as read from disk, its files' text (by path in the
+ * prototype folder), and the record's notes that findings cite (`null`: not found), when the record can be read.
+ */
+export type WalkContext = { loaded: Loaded; vocab: Vocab; files?: Record<string, string>; record?: Record<string, string | null>; hasRecord?: boolean }
 
 const itemOf = (register: Register, id: string) => register.items.find(i => i.id === id)
 
@@ -55,6 +59,31 @@ function cleanCard(raw: unknown, n: number, seen: Set<string>, ctx: WalkContext,
     const v = str(raw[key])
     if (v === undefined) problems.push(`${at}: "${key}" is required text`)
     return v ?? ''
+  }
+
+  if (type === 'finding') {
+    let id = cardId(str(raw.id) ?? '') || `F-${hashOf(`${str(raw.where) ?? ''}|${str(raw.title) ?? n}`).slice(0, 6)}`
+    while (seen.has(id)) id = `${id}-${n + 1}`
+    seen.add(id)
+    const at = `${where} (${id})`
+    const kind = raw.kind === 'drift' || raw.kind === 'review' || raw.kind === 'check' ? raw.kind : undefined
+    const severity = raw.severity === 'high' || raw.severity === 'medium' || raw.severity === 'low' ? raw.severity : undefined
+    const quote = str(raw.quote)
+    const whereText = str(raw.where)
+    const ev = isObj(raw.evidence) && str(raw.evidence.quote) ? { ref: str(raw.evidence.ref), quote: String(raw.evidence.quote) } : undefined
+    // A finding points only at words that are there: in the prototype, and in the record note it cites.
+    if (kind === 'drift' && !quote) problems.push(`${at}: a drift finding quotes the prototype ("quote")`)
+    if (kind === 'drift' && !ev) problems.push(`${at}: a drift finding quotes the record ("evidence": ref and quote)`)
+    if (quote && ctx.files && !filesFor(whereText, ctx.loaded, ctx.files).some(text => isQuoted(quote, text)))
+      problems.push(`${at}: the quote is not in ${whereText ?? 'the prototype'}, word for word: "${quote.slice(0, 80)}"`)
+    let isRecordUnchecked: boolean | undefined
+    if (ev) {
+      if (!ctx.hasRecord) isRecordUnchecked = true
+      else if (!ev.ref) problems.push(`${at}: "evidence.ref" names the record note the quote is from`)
+      else if (ctx.record?.[ev.ref] == null) problems.push(`${at}: the record note "${ev.ref}" was not found`)
+      else if (!isQuoted(ev.quote, ctx.record[ev.ref]!)) problems.push(`${at}: the quote is not in ${ev.ref}, word for word: "${ev.quote.slice(0, 80)}"`)
+    }
+    return { type, id, title: need('title', at), body: need('body', at), severity, kind, where: whereText, quote, suggestion: str(raw.suggestion), evidence: ev, isRecordUnchecked }
   }
 
   if (type === 'plan') {
@@ -235,6 +264,8 @@ export function cardState(card: Card, draft: Draft, vocab: Vocab): CardState {
       return r?.choice === 'amend' ? (hasText(r) ? 'done' : 'partial') : r?.choice ? 'done' : hasText(r) ? 'partial' : 'open'
     case 'plan':
       return r?.choice ? 'done' : (r?.rows && Object.keys(r.rows).length) || hasText(r) ? 'partial' : 'open'
+    case 'finding':
+      return r?.choice ? 'done' : hasText(r) ? 'partial' : 'open'
   }
 }
 
@@ -265,6 +296,8 @@ const VERB: Record<string, string> = {
   keep: 'Kept proposed',
   go: 'Go ahead',
   cancel: 'Cancelled',
+  accept: 'Accepted',
+  discuss: 'Discuss',
 }
 
 /** The status a decision or ADR verb leaves the item in, in the project's own words. */
@@ -297,6 +330,11 @@ export function cardOutcome(card: Card, draft: Draft, vocab: Vocab): string[] {
       note(r?.choice === 'amend' ? 'Changes' : card.type === 'decision' ? "Owner's call" : 'Comment', r?.text)
       break
     }
+    case 'finding':
+      lines.push(`- **Response:** ${r?.choice ? VERB[r.choice] ?? r.choice : '_undecided_'}${r?.choice === 'accept' && card.kind === 'drift' ? ': fix the prototype toward the record' : ''}`)
+      if (card.where) lines.push(`- **Where:** ${card.where}`)
+      note('Reply', r?.text)
+      break
     case 'plan': {
       const rows = card.rows.map(row => ({ row, isOn: rowIsOn(r, row.id) }))
       const on = rows.filter(x => x.isOn)
@@ -319,7 +357,9 @@ export function cardOutcome(card: Card, draft: Draft, vocab: Vocab): string[] {
 export function cardText(walk: Walk, card: Card, draft: Draft, vocab: Vocab): string {
   const out = [`## ${card.id}: ${card.title}`, '', `_${TYPE_LABEL[card.type]} · ${walk.initiative.id} · ${walk.title}_`, '']
   const add = (...parts: (string | undefined | false)[]) => parts.forEach(x => x && out.push(x, ''))
-  if (card.type !== 'plan') {
+  if (card.type === 'finding') {
+    add(card.quote && `> ${card.quote}`, card.body, card.suggestion && `**Suggested change:** ${card.suggestion}`, card.evidence && `**The record says**${card.evidence.ref ? ` (${card.evidence.ref})` : ''}: ${card.evidence.quote}`)
+  } else if (card.type !== 'plan') {
     if (card.type === 'question') add(card.prompt, card.context, ...(card.options ?? []).map(o => `- ${o.label}${o.description ? ` (${o.description})` : ''}${o.id === card.recommended ? ' (recommended)' : ''}`))
     else add(card.proposal, card.type === 'decision' && card.rationale && `**Why:** ${card.rationale}`, card.type === 'adr' && card.clauses, ...(card.alternatives ?? []).map(a => `- Not chosen: ${a.label}${a.reason ? ` (${a.reason})` : ''}`))
     add(osDiffText(card.osDiff), card.evidence && `**Evidence:** ${card.evidence}`, !!card.linked?.length && `**Linked:** ${card.linked.map(l => `${l.id}${l.title ? ` ${l.title}` : ''}${l.status ? ` (${l.status})` : ''}`).join('; ')}`)
@@ -433,6 +473,8 @@ export function outcomeMarkdown(walk: Walk, draft: Draft, submittedAt: string, v
   }
   out.push('## Polishing log (draft)', '', polishingLine(walk, draft, extras.notes, vocab, submittedAt), '')
   out.push('## How to apply, in this order', '', ...applyOrder(extras.vault), '')
+  if (walk.cards.some(c => c.type === 'finding'))
+    out.push('For accepted findings: fix drift toward the record, never the other way round, unless I say the record is wrong; then fix the record first.', '')
   return out.join('\n')
 }
 
@@ -511,7 +553,7 @@ export const PUBLISH_DESCRIPTION = [
   'Put a polishing walk in front of the owner in the discovery desk, a side panel in Claude Code: the open questions, proposed decisions and proposed ADRs of a UX prototype journey, or a write plan or closing checklist to approve row by row.',
   'Use it instead of asking several questions in chat. The walk is saved under the desk folder (pending/<id>/); the owner answers in the panel, can step through the journey and ask questions there, and submits. You then receive a prompt pointing at the outcome.',
   'The record (the vault, the catalogue, the ADR notes) stays the record: read it first, mirror it, cite its ids. "initiative" is the register\'s initiative id (prototype.js) or its folder name. Question, decision and adr cards take the id of the item in the register (Q-NN, D-NN, ADR-…); the desk fills in its status and the journey steps that show it.',
-  'Card types: question (prompt, options[] with trade-offs in description, recommended, context), decision (proposal, rationale, alternatives[], consequences), adr (proposal, clauses, alternatives[]), plan (rows[] of action + target + summary; intro). Question, decision and adr cards also take osDiff {ios, android}, evidence (Markdown) and linked[] (id, title, status, note) for the risks, assumptions, experiments and ADRs they touch.',
+  'Card types: question (prompt, options[] with trade-offs in description, recommended, context), decision (proposal, rationale, alternatives[], consequences), adr (proposal, clauses, alternatives[]), plan (rows[] of action + target + summary; intro), finding (title, body, severity, kind drift|review|check, where, quote, suggestion, evidence {ref, quote}). A finding\'s quote must be in the prototype word for word; a drift finding also quotes the record note it differs from (evidence), checked when the desk can read the record. Question, decision and adr cards also take osDiff {ios, android}, evidence (Markdown) and linked[] (id, title, status, note) for the risks, assumptions, experiments and ADRs they touch.',
   'Order cards by how much design each decides. Publishing the same id again replaces the walk and keeps the owner\'s answers for cards whose ids stay the same.',
 ].join('\n')
 
@@ -534,6 +576,13 @@ export const PUBLISH_SCHEMA = {
         properties: {
           type: { type: 'string', enum: CARD_TYPES as unknown as string[] },
           id: { type: 'string', description: 'For question, decision and adr cards: the item id in the register (Q-34, D-24, ADR-v-056).' },
+          body: { type: 'string', description: 'Finding: what is wrong and why it matters.' },
+          severity: { type: 'string', enum: ['high', 'medium', 'low'] },
+          kind: { type: 'string', enum: ['drift', 'review', 'check'] },
+          where: { type: 'string', description: 'Finding: a journey code, a step, or a file in the prototype folder (prototype.js, journeys/J02-….html).' },
+          quote: { type: 'string', description: 'Finding: words from the prototype, verbatim.' },
+          suggestion: { type: 'string' },
+          evidence: { description: 'Question, decision, adr: Markdown, the evidence it rests on. Finding: an object, the record note (ref) and words from it (quote).', properties: { ref: { type: 'string', description: 'The record note, vault-relative.' }, quote: { type: 'string', description: 'Words from that note, verbatim.' } } },
           title: { type: 'string', description: "Defaults to the register's title for the id." },
           prompt: { type: 'string' },
           context: { type: 'string' },
@@ -546,7 +595,6 @@ export const PUBLISH_SCHEMA = {
           alternatives: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, reason: { type: 'string' } }, required: ['label'] } },
           consequences: { type: 'string' },
           osDiff: { type: 'object', properties: { ios: { type: 'string' }, android: { type: 'string' } } },
-          evidence: { type: 'string' },
           linked: { type: 'array', items: linkedItem },
           intro: { type: 'string' },
           rows: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, action: { type: 'string' }, target: { type: 'string' }, summary: { type: 'string' } }, required: ['target'] } },

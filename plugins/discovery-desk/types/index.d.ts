@@ -160,12 +160,53 @@ export type AdrCard = Framed & {
   alternatives?: { label: string; reason?: string }[]
 }
 
+/** A problem a check found, before it becomes a card. */
+export type CheckFinding = {
+  id: string
+  source: 'desk' | 'validator'
+  severity: 'high' | 'medium' | 'low'
+  /** Where it is: a journey, a step, a surface. */
+  where: string
+  title: string
+  body: string
+  quote?: string
+  /** The prototype differs from the record. */
+  isDrift?: boolean
+}
+
+/** A drift or review finding: from the checks, or from Claude, with its quotes checked word for word. */
+export type FindingCard = {
+  type: 'finding'
+  id: string
+  title: string
+  /** Markdown: what is wrong and why it matters. */
+  body: string
+  severity?: 'high' | 'medium' | 'low'
+  /** `drift`: the prototype differs from the record; `review`: a judgement; `check`: a rule the checks enforce. */
+  kind?: 'drift' | 'review' | 'check'
+  /** A journey code, a step, or a file in the prototype folder. */
+  where?: string
+  /** Words from the prototype, found there when published. */
+  quote?: string
+  suggestion?: string
+  /** Words from the record: a note's path and a quote found in it. */
+  evidence?: { ref?: string; quote: string }
+  /** The record could not be read, so `evidence.quote` was not checked. */
+  isRecordUnchecked?: boolean
+}
+
+/** The last checks run on an initiative. */
+export type CheckRun = { at: string; errors: number; warnings: number; ranValidator: boolean; problem?: string }
+
+/** A file a walk was built from, and its fingerprint then. */
+export type SourceMark = { path: string; label: string; hash: string }
+
 export type PlanRow = { id: string; action: string; target: string; summary?: string }
 
 /** A vault write plan or a closing checklist: the owner says yes or no per row. */
 export type PlanCard = { type: 'plan'; id: string; title: string; intro?: string; rows: PlanRow[] }
 
-export type Card = QuestionCard | DecisionCard | AdrCard | PlanCard
+export type Card = QuestionCard | DecisionCard | AdrCard | PlanCard | FindingCard
 export type CardType = Card['type']
 
 export type Walk = {
@@ -178,6 +219,8 @@ export type Walk = {
   label?: string
   createdAt: string
   origin?: string
+  /** The files it was built from, fingerprinted, so the desk can say when one changed. */
+  sources?: SourceMark[]
   cards: Card[]
 }
 
@@ -222,7 +265,14 @@ export type WalkSummary = {
   isBroken?: boolean
 }
 
-export type OpenWalk = { walk: Walk; draft: Draft; status: WalkStatus; submittedAt?: string }
+export type OpenWalk = {
+  walk: Walk
+  draft: Draft
+  status: WalkStatus
+  submittedAt?: string
+  /** Sources that changed after the walk was published (their labels). */
+  stale?: string[]
+}
 
 /** How a step is shown: everything, the captions alone, the chips alone, or all but the callouts. */
 export type StepView = 'all' | 'captions' | 'chips' | 'no-notes'
@@ -262,6 +312,12 @@ declare module 'claude-code' {
       /** What is typed in the pane's fields, not yet committed; never drawn from. */
       typing: Record<string, string>
       root: string
+      /** The last checks per initiative folder. */
+      checks: Record<string, CheckRun>
+      /** Prototype folders Claude edited this turn, to check when it ends. */
+      dirty: string[]
+      /** Whether the record was written this turn (the vault-first guard). */
+      recordWritten: boolean
     }
   }
 }

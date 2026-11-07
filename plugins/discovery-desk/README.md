@@ -9,6 +9,13 @@ It reads prototypes built the way a *register plus journey pages* kit builds the
 - **A desk of walks and initiatives.** The home lists the walks waiting for you and the ones you submitted, then every initiative with a prototype, with its counts of open questions, proposals and decisions. The status line shows the walks waiting and the open initiative's counts.
 - **A journey player.** You step through a journey with the context the kit shows beside the phone: persona, use case, trigger, preconditions, outcome, what differs between iOS and Android, story-map steps and surfaces. Each step shows its title, the screen it is on, its caption, its chips and its callouts.
 - **Cards for each open question, proposed decision and ADR**, published by Claude and framed by the desk from the register. Each card shows the item's status, the journey steps that show it, what differs on each phone, the evidence and the linked risks, assumptions and experiments.
+- **Checks, as findings on the desk.** **Run checks** on an initiative runs the desk's own checks and, when you name it, the project's own validator. What they find goes on the desk as one walk of finding cards, for you to accept or reject.
+  - The desk checks: surfaces nobody draws, a journey using a surface that is not in the surfaces table, chips the register does not list, gendered pronouns in captions, wording that suggests value leaves the product, and figures shown without being called placeholders.
+  - The validator's `ERROR` and `warn` lines become findings, and the ones that name the record are marked as drift.
+  - The same checks run by themselves at the end of a turn in which Claude edited a prototype; the status line shows the result.
+- **Drift shown side by side.** A drift finding quotes the prototype and the record note it differs from. The desk refuses a finding whose quote is not in the prototype word for word; with `vaultRoot` set, it also checks the record quote against the note on disk. Accepting one tells Claude to fix the prototype toward the record.
+- **A vault-first guard.** When Claude edits `prototype.js` or a journey page before anything has been written to the record in that turn, the desk reminds Claude of the rule, or with `guardMode: block` refuses the edit.
+- **Stale walks flagged.** A walk keeps fingerprints of the register, its journeys' pages and the catalogue note. When one changes after publishing, the walk says its cards may be out of date and offers to ask Claude to publish it again.
 - **Ask Claude about any card.** Each card has its own short chat, and Claude's answers come back onto the card with their sources.
 - **Saved as you go.** Answers go to `draft.json`; your step notes, walked ticks and raised questions go to `notes/<initiative>.json`.
 - **Submit, and Claude applies it in order.** The outcome lists every answer, the questions you raised, your step notes, a drafted polishing-log line and the order to apply them in. The hand-off asks Claude to put its write plan on the desk for your yes or no before it writes, and a closing checklist after.
@@ -39,6 +46,7 @@ The keys work while the panel has the focus.
 | **Decision** (`D-NN`) | approve, approve with changes, or reject, with the owner's call |
 | **ADR** | decide it in place, decide with changes to its clauses, or keep it proposed |
 | **Plan** | say yes or no to each row of a write plan or a closing checklist, then go ahead or cancel |
+| **Finding** | accept (for drift: fix toward the record), reject or discuss, with a reply; the prototype's words and the record's are shown |
 
 Chips and frames keep the kit's colours: purple for an open question, blue for a proposal, green for a decision.
 
@@ -57,7 +65,7 @@ Answer `y` to add the marketplace, then choose a scope. A mod installed this way
 | Command | Does |
 | --- | --- |
 | `/discovery` | Opens the discovery desk, or closes it when it is open |
-| `publish_walk` (tool for Claude) | Puts a walk on the desk: question, decision, ADR and plan cards for one initiative. The desk refuses a walk with a list of what to fix, for example a journey not in the register, or a question card whose id reads as a decision |
+| `publish_walk` (tool for Claude) | Puts a walk on the desk: question, decision, ADR, plan and finding cards for one initiative. The desk refuses a walk with a list of what to fix, for example a journey not in the register, or a question card whose id reads as a decision |
 | `list_walks` (tool for Claude) | Lists the initiatives the desk can see and its walks, with the path of each outcome |
 | `answer_question` (tool for Claude) | Puts Claude's answer to a question you asked from a card back on that card |
 
@@ -80,6 +88,14 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 | `autoOpen` | `true` | Opens the panel on a new walk, unless you are in the middle of another one |
 | `handOff` | `true` | On submit, queues a prompt asking Claude to apply the outcome |
 | `selectableText` | `true` | On the desktop, draws card and caption text so it can be selected; off draws it as the app's own text |
+| `validator` | _(none)_ | The project's own prototype check, run from the project root with the prototype folder added, for example `node .claude/skills/<skill>/scripts/validate_prototype.js`. Its `ERROR` and `warn` lines become findings |
+| `validatorOffline` | `--no-vault` | Arguments that run the validator without the record, behind **Run without the record**. Empty: no such button |
+| `vaultRoot` | _(none)_ | The vault's folder on disk, read only: drift quotes are checked against its notes, and the catalogue is fingerprinted |
+| `autoValidate` | `true` | Runs the checks at the end of a turn in which Claude edited a prototype |
+| `guardMode` | `warn` | The vault-first guard: `off`, `warn` (Claude is reminded) or `block` (the edit is refused) |
+| `vaultWriteTools` | the obsidian-cli-mcp write tools | A pattern for the tools that write the record; a call to one counts as the record written this turn |
+| `valueWords` | cash out, redeem, gift cards… | A pattern for wording that suggests value leaves the product. Empty: not checked |
+| `figurePattern` | prices and coin counts | A pattern for figures a journey should call placeholders. Empty: not checked |
 | `questionPrefix`, `decisionPrefix`, `adrPrefix` | `Q-`, `D-`, `ADR-` | How the register's ids start |
 | `questionStatuses` | `open, decided, deferred, withdrawn` | A question's status words: the undecided one first, the decided one second |
 | `decisionStatuses` | `proposed, decided, rejected` | A decision's, in that order |
@@ -94,10 +110,13 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
   pending/<id>/draft.json        your answers so far
   reviewed/<id>/                 the same, plus outcome.md and outcome.json
   notes/<initiative>.json        step notes, walked ticks, raised questions
+  pending/<initiative>-checks/   what the last checks found, as finding cards
 ```
 
 - **Reading.** On session start and on refresh, the desk finds every `prototype.js` under the prototype root. Opening an initiative reads its journey pages. Both are parsed as object literals: anything that is not plain data (a call, a variable, a `${…}` template) stops the read with the line it is on, and the desk shows that instead of the initiative.
 - **Publishing.** Claude publishes with `publish_walk`. The desk checks each card against the register, fills in the item's status and the steps that show it, and writes the walk to `pending/<id>/`. Publishing the same id again keeps your answers for the cards that stayed.
+- **Checking.** **Run checks**, or the end of a turn that edited a prototype, runs the desk's checks and the validator (with `process.run`, from the project root) and writes what they find as the `<initiative>-checks` walk. Each finding keeps its id from run to run, so your answers survive a re-run. The desk records the last result per initiative for the status line.
+- **Guarding.** A hook on every tool call notes when a record-writing tool runs, and refuses or annotates an edit to a prototype's register or pages when none has run in the turn yet. The count starts again when the main turn ends; a subagent's turn ending does not reset it.
 - **Drawing.** The panel draws from those files, with the view in `$.state` so it survives the mod reloading. Play runs on a timer that a reload stops.
 - **Submitting.** The outcome is written beside the walk, the folder moves to `reviewed/`, and the questions you raised are marked as handed over. The prompt handed back tells Claude to apply the answers in the record first and in a fixed order, then mirror them into the prototype. It also tells Claude never to change an initiative's score or verdict, and to confirm with you before writing.
 
@@ -105,6 +124,8 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 
 - **No phone in the panel.** A pane cannot host a web page, so the panel shows each step's text, screen name, chips and callouts; **Open on** asks Claude to show the real page in the browser pane.
 - **Plain-literal prototypes only.** A register or journey page that computes its values cannot be read; the desk says which line stopped it.
+- **The guard knows the record by its tools.** It counts a record write by the tool's name (`vaultWriteTools`) or by an edit under `vaultRoot`; a record written some other way does not count. A change that only mirrors the record (fixing drift) still gets the reminder in `warn` mode, and is refused in `block` mode.
+- **The validator's report is read by its lines.** Only lines that start `ERROR` or `warn` become findings, each read as `<where>: <message>`.
 - **Proposed numbers.** A raised question's number comes from the register, which may lag the record. Claude is told to check the record's highest number before recording it.
 - **An answer arrives when Claude has finished its turn.** A question sent from a card, a polish request or an **Open on** request waits its turn in the session.
 - **Text you type is saved when you press Enter or move on.**

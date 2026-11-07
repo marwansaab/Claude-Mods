@@ -5,6 +5,7 @@ import type { Loaded } from '../types'
 import { LiteralError, parseLiteral } from '../hooks/literal'
 import { DEFAULT_VOCAB, htmlToMd, nearestStep, nextQuestionId, readJourney, readRegister, stepsOn } from '../hooks/prototype'
 import { cardState, cleanWalk, emptyDraft } from '../hooks/walk'
+import { deskChecks, isQuoted, readReport } from '../hooks/checks'
 
 const AT = '2026-11-07T09:00:00.000Z'
 const ROOT = '/proj'
@@ -86,9 +87,16 @@ const WALK = {
   ],
 }
 
-function memoryWorld(on: On, withPrototype = true) {
-  const files = new Map<string, string>(withPrototype ? [[`${PROTO}/prototype.js`, REGISTER], [`${PROTO}/journeys/J01-first-run.html`, J01]] : [])
+/** The project's validator, as the desk runs it in the tests: `node check.js <folder>` prints this report. */
+const REPORT = `Prototype check — INIT-9 Sample Game
+  ERROR  J01 step 3: Q-01 is open here but decided in the catalogue
+  warn   J01 step 1: a note gives text for one OS only
+FAILED — 1 error(s), 1 warning(s)`
+
+function memoryWorld(on: On, withPrototype = true, extra: Record<string, string> = {}) {
+  const files = new Map<string, string>([...(withPrototype ? [[`${PROTO}/prototype.js`, REGISTER], [`${PROTO}/journeys/J01-first-run.html`, J01]] as [string, string][] : []), ...Object.entries(extra)])
   const prompts: string[] = []
+  const runs: string[][] = []
   const norm = (p: string) => p.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
   const isDir = (p: string) => [...files.keys()].some(k => k.startsWith(norm(p) + '/'))
   on('session.root', () => ({ value: ROOT }))
@@ -110,6 +118,8 @@ function memoryWorld(on: On, withPrototype = true) {
   })
   on('process.run', ($, e) => {
     const [cmd, from, to] = e.argv
+    runs.push([...e.argv])
+    if (cmd === 'node' && from === 'check.js') return { value: { exitCode: 1, stdout: REPORT, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (cmd !== 'mv' || !from || !to) return { value: { exitCode: 1, stdout: '', stderr: 'no', isStdoutTruncated: false, isStderrTruncated: false } }
     for (const [k, v] of [...files])
       if (k.startsWith(norm(from) + '/')) {
@@ -125,8 +135,11 @@ function memoryWorld(on: On, withPrototype = true) {
   on('ui.open', () => ({ value: { isPlaced: true } }) as never)
   on('ui.status', () => ({ value: undefined }) as never)
   on('ui.toast', () => ({ value: undefined }) as never)
-  return { files, prompts }
+  return { files, prompts, runs }
 }
+
+/** Calls a tool loosely typed: the engine's per-tool typing is too deep for the checker on a spread input. */
+const callTool = (tool: { call: unknown }, input: Record<string, unknown>) => (tool.call as (input: unknown) => Promise<unknown>)(input)
 
 const PANE = { component: 'Pane' as const, requestId: 'discovery-desk', props: { title: 'Discovery desk', isFocused: false, bodyColumns: 70, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 60 }, view: {} } }
 
@@ -214,7 +227,7 @@ describe('the desk', () => {
   test('Claude publishes a walk; the owner answers, walks a step, raises a question and submits', async ($, on) => {
     mock.clock(on, { now: Date.parse(AT) })
     const world = memoryWorld(on)
-    const published = await $.tool.call({ tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_1', ...WALK } as never)
+    const published: unknown = await callTool($.tool, { tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_1', ...WALK })
     expect(String((published as { result?: unknown }).result)).toMatch(/Published "Polish the first run" as INIT-9-J01-walk for INIT-9: 4 cards/)
     expect(world.files.has('/proj/Discovery/pending/INIT-9-J01-walk/walk.json')).toBe(true)
     expect(world.files.has('/proj/Discovery/README.md')).toBe(true)
@@ -370,13 +383,13 @@ describe('the desk', () => {
   test('Claude answers a question asked from a card, on that card', async ($, on) => {
     mock.clock(on, { now: Date.parse(AT) })
     const world = memoryWorld(on)
-    await $.tool.call({ tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_2', ...WALK } as never)
+    await callTool($.tool, { tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_2', ...WALK })
     const pane = await $.ui.mount({ plugin: 'discovery-desk', surface: 'desktop', ...PANE })
     await pane.input({ key: 'ask:Q-01#0', text: 'What do other games open with?' })
     expect(await shows(pane, /Claude is looking into it/)).toBe(true)
     const askId = /ask "([^"]+)"/.exec(world.prompts.at(-1) ?? '')?.[1] ?? ''
     expect(askId).not.toBe('')
-    await $.tool.call({ tool: 'mcp__discovery-desk__answer_question', tool_use_id: 'toolu_3', walk: 'INIT-9-J01-walk', ask: askId, answer: 'Most open on a small table.', sources: [{ title: 'Store page', url: 'https://example.com' }] } as never)
+    await callTool($.tool, { tool: 'mcp__discovery-desk__answer_question', tool_use_id: 'toolu_3', walk: 'INIT-9-J01-walk', ask: askId, answer: 'Most open on a small table.', sources: [{ title: 'Store page', url: 'https://example.com' }] })
     expect(await shows(pane, /Most open on a small table/)).toBe(true)
     await pane.unmount()
   })
@@ -385,12 +398,12 @@ describe('the desk', () => {
     mock.clock(on, { now: Date.parse(AT) })
     const world = memoryWorld(on)
     const before = world.files.size
-    const unknown = await $.tool.call({ tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_4', ...WALK, initiative: 'INIT-404' } as never)
+    const unknown = await callTool($.tool, { tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_4', ...WALK, initiative: 'INIT-404' })
     expect(JSON.stringify(unknown)).toMatch(/No UX prototype for \\"INIT-404\\"/)
-    const bad = await $.tool.call({ tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_5', title: 'x', initiative: 'INIT-9', cards: [] } as never)
+    const bad = await callTool($.tool, { tool: 'mcp__discovery-desk__publish_walk', tool_use_id: 'toolu_5', title: 'x', initiative: 'INIT-9', cards: [] })
     expect(JSON.stringify(bad)).toMatch(/at least one card/)
     expect(world.files.size).toBe(before)
-    const listed = await $.tool.call({ tool: 'mcp__discovery-desk__list_walks', tool_use_id: 'toolu_6' } as never)
+    const listed = await callTool($.tool, { tool: 'mcp__discovery-desk__list_walks', tool_use_id: 'toolu_6' })
     expect(JSON.stringify(listed)).toMatch(/INIT-9 Sample Game · INIT-9 - Sample\/UX Prototype · 2 journeys, 1 open, 2 proposed, 1 decided/)
   })
 
@@ -403,5 +416,148 @@ describe('the desk', () => {
       expect(await shows(pane, /No walk is waiting/)).toBe(true)
       await pane.unmount()
     }
+  })
+})
+
+describe('checks', () => {
+  test('the desk’s own checks: surfaces, chips, pronouns, value-out wording and unlabelled figures', async () => {
+    const register = readRegister(
+      REGISTER.replace("surfaces: ['shop']", "surfaces: ['shop', 'ghost']").replace("shop: { name: 'Purchase sheet'", "ads: { name: 'Interstitial' },\n    shop: { name: 'Purchase sheet'"),
+    )
+    const page = J01.replace('Ada opens <b>the game</b> &mdash; nothing else yet.', 'Ada opens it; she can cash out 30 coins.').replace("questions: ['Q-01', 'D-01']", "questions: ['Q-01', 'D-01', 'Q-02']")
+    const l: Loaded = { folder: PROTO, rel: 'x', register, journeys: { J01: readJourney(page, register.journeys[0]!) } }
+    const found = deskChecks(l, { valueWords: String.raw`\bcash[ -]?out\b`, figurePattern: String.raw`\b\d+\s?coins?\b` })
+    const titles = found.map(f => f.title).join('\n')
+    expect(titles).toMatch(/Surface "Interstitial" does not say who draws it/)
+    expect(titles).toMatch(/J01 uses surface "ghost", which is not in the surfaces table/)
+    expect(titles).toMatch(/J01 step 3 shows Q-02, which J01’s register entry does not list/)
+    expect(titles).toMatch(/Gendered pronoun in the caption of J01 step 1/)
+    expect(titles).toMatch(/“cash out” in the caption of J01 step 1/)
+    expect(titles).toMatch(/J01 shows figures without calling them placeholders/)
+    // Ids are stable: the same problem keeps its id from run to run.
+    expect(deskChecks(l, { valueWords: '', figurePattern: '' }).map(f => f.id)).toEqual(deskChecks(l, { valueWords: '', figurePattern: '' }).map(f => f.id))
+  })
+
+  test('a validator’s report becomes findings; drift is told apart', async () => {
+    const found = readReport(REPORT)
+    expect(found.map(f => [f.severity, f.where, !!f.isDrift])).toEqual([
+      ['high', 'J01 step 3', true],
+      ['low', 'J01 step 1', false],
+    ])
+  })
+
+  test('quotes match word for word, forgiving markup, typographic quotes, dashes and spaces only', async () => {
+    expect(isQuoted('Ada opens the game - nothing else', '<b>Ada</b> opens <b>the game</b> &mdash; nothing  else yet')).toBe(true)
+    expect(isQuoted("Players can't skip", 'Players can’t skip ahead')).toBe(true)
+    expect(isQuoted('Ada closes the game', 'Ada opens the game')).toBe(false)
+  })
+
+  test('Run checks puts what the checks and the validator find on the desk', { options: { validator: 'node check.js' } }, async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    const pane = await $.ui.mount({ plugin: 'discovery-desk', surface: 'desktop', ...PANE })
+    await pane.press({ key: 'refresh' })
+    await pane.press({ key: 'ini-INIT-9' })
+    expect(await shows(pane, /Not checked yet/)).toBe(true)
+    await pane.press({ key: 'run-checks-offline' })
+    expect(world.runs.at(-1)).toEqual(['node', 'check.js', PROTO, '--no-vault'])
+    const walk = JSON.parse(world.files.get('/proj/Discovery/pending/INIT-9-checks/walk.json') ?? '{}')
+    // The desk's own check (J02's page is missing) and the validator's two lines.
+    expect(walk.cards?.map((c: { kind: string; severity: string }) => `${c.kind}:${c.severity}`)).toEqual(['check:high', 'drift:high', 'check:low'])
+    expect(await shows(pane, /Checks for INIT-9 Sample Game/)).toBe(true)
+    expect(await shows(pane, /J02’s page could not be read/)).toBe(true)
+    await pane.press({ key: 'card-next' })
+    expect(await shows(pane, /the prototype differs from the record/)).toBe(true)
+    await pane.press({ key: `verb-${walk.cards[1].id}-accept` })
+    await pane.press({ key: 'back' })
+    await pane.press({ key: 'ini-INIT-9' })
+    expect(await shows(pane, /2 errors, 1 warning/)).toBe(true)
+    await pane.unmount()
+  })
+
+  test('a drift finding from Claude quotes the prototype and the record, both found word for word', { options: { vaultRoot: '/vault' } }, async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on, true, { '/vault/Discovery/Sample Journey Catalogue.md': '| Q-01 | Which table opens first? | decided: the small table |' })
+    const drift = (quote: string, recordQuote: string) => ({
+      tool: 'mcp__discovery-desk__publish_walk',
+      tool_use_id: 'toolu_d',
+      id: 'INIT-9-drift',
+      title: 'Drift',
+      initiative: 'INIT-9',
+      cards: [{ type: 'finding', kind: 'drift', severity: 'high', title: 'Q-01 is decided in the record', body: 'The register still says open.', where: 'prototype.js', quote, evidence: { ref: 'Discovery/Sample Journey Catalogue', quote: recordQuote } }],
+    })
+    const wrongPrototype = await callTool($.tool, drift("'Q-01': { status: 'closed'", 'decided: the small table'))
+    expect(JSON.stringify(wrongPrototype)).toMatch(/the quote is not in prototype\.js/)
+    const wrongRecord = await callTool($.tool, drift("'Q-01': { status: 'open'", 'decided: the big table'))
+    expect(JSON.stringify(wrongRecord)).toMatch(/the quote is not in Discovery\/Sample Journey Catalogue/)
+    expect(world.files.has('/proj/Discovery/pending/INIT-9-drift/walk.json')).toBe(false)
+    const ok = await callTool($.tool, drift("'Q-01': { status: 'open'", 'decided: the small table'))
+    expect(JSON.stringify(ok)).toMatch(/Published \\"Drift\\"/)
+    const walk = JSON.parse(world.files.get('/proj/Discovery/pending/INIT-9-drift/walk.json')!)
+    // The walk keeps fingerprints of the register, the page and the catalogue note.
+    expect(walk.sources.map((s: { label: string }) => s.label)).toEqual(['prototype.js', 'the J01 page', 'the catalogue'])
+    const pane = await $.ui.mount({ plugin: 'discovery-desk', surface: 'terminal', ...PANE })
+    expect(await shows(pane, /The record says/)).toBe(true)
+    expect(await shows(pane, /Accept: fix toward the record/)).toBe(true)
+    // The register changes: opened again, the walk says its cards may be out of date.
+    world.files.set(`${PROTO}/prototype.js`, REGISTER.replace("'Q-01': { status: 'open'", "'Q-01': { status: 'decided'"))
+    await pane.press({ key: 'back' })
+    await pane.press({ key: 'open-pending-INIT-9-drift' })
+    expect(await shows(pane, /Changed since this walk was published: prototype\.js/)).toBe(true)
+    await pane.press({ key: 'republish' })
+    expect(world.prompts.at(-1)).toMatch(/publish the walk again with publish_walk under the same id/)
+    await pane.unmount()
+  })
+
+  test('without the record on disk, a drift finding is published with its record quote marked unchecked', async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    memoryWorld(on)
+    const res = await callTool($.tool, {
+      tool: 'mcp__discovery-desk__publish_walk',
+      tool_use_id: 'toolu_u',
+      title: 'Drift',
+      initiative: 'INIT-9',
+      cards: [{ type: 'finding', kind: 'drift', title: 'Q-01', body: 'b', quote: 'Which table opens first?', evidence: { ref: 'Catalogue', quote: 'decided' } }],
+    })
+    expect(JSON.stringify(res)).toMatch(/record quotes were not checked/)
+  })
+})
+
+describe('the vault-first guard and checks after edits', () => {
+  const stubTools = (on: On) => {
+    on('tool.call', { tool: 'Edit' }, () => ({ result: { ok: true } }) as never)
+    on('tool.call', { tool: 'mcp__obsidian-cli-mcp__write_note' }, () => ({ result: { ok: true } }) as never)
+    on('turn.complete', () => ({ text: '' }))
+  }
+  const edit = { tool: 'Edit', tool_use_id: 'toolu_e', file_path: `${PROTO}/prototype.js`, old_string: 'open', new_string: 'decided' }
+
+  test('warn: an edit to the prototype before the record is written reminds Claude; after a record write it does not', { options: { validator: 'node check.js' } }, async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    const world = memoryWorld(on)
+    stubTools(on)
+    await callTool($.tool, { tool: 'mcp__discovery-desk__list_walks', tool_use_id: 'toolu_l' })
+    const first = (await callTool($.tool, edit)) as { context?: string[] }
+    expect((first.context ?? []).join('')).toMatch(/vault-first rule/)
+    // A subagent's turn ending changes nothing; the main turn's end runs the checks on what was edited.
+    await $.turn.complete({ reason: 'answer', answer: '', text: '', agentId: 'agent-1' } as never)
+    expect(world.files.has('/proj/Discovery/pending/INIT-9-checks/walk.json')).toBe(false)
+    await $.turn.complete({ reason: 'answer', answer: '', text: 'Done.' } as never)
+    expect(world.files.has('/proj/Discovery/pending/INIT-9-checks/walk.json')).toBe(true)
+    // A new turn: the record is written first, then the prototype.
+    await callTool($.tool, { tool: 'mcp__obsidian-cli-mcp__write_note', tool_use_id: 'toolu_w', vault: 'Sample-Vault', path: 'x.md', content: 'x' })
+    const second = (await callTool($.tool, edit)) as { context?: string[] }
+    expect((second.context ?? []).join('')).not.toMatch(/vault-first rule/)
+  })
+
+  test('block: the edit is refused with the reason', { options: { guardMode: 'block' } }, async ($, on) => {
+    mock.clock(on, { now: Date.parse(AT) })
+    memoryWorld(on)
+    stubTools(on)
+    await callTool($.tool, { tool: 'mcp__discovery-desk__list_walks', tool_use_id: 'toolu_l' })
+    const res = await callTool($.tool, edit)
+    expect(JSON.stringify(res)).toMatch(/guard is set to block/)
+    // A file outside the prototypes is never guarded.
+    const other = await callTool($.tool, { ...edit, file_path: '/proj/notes.md' })
+    expect(JSON.stringify(other)).not.toMatch(/guard/)
   })
 })

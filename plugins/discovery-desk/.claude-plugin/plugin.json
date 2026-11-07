@@ -1,7 +1,7 @@
 {
   "name": "discovery-desk",
-  "version": "0.1.0",
-  "description": "A discovery desk panel (/discovery) for UX prototype journeys: walk a journey step by step on iOS or Android, answer its open questions, decisions and ADRs on cards Claude publishes, and hand the answers back to be recorded in the vault first.",
+  "version": "0.2.0",
+  "description": "A discovery desk panel (/discovery) for UX prototype journeys: walk a journey step by step on iOS or Android, answer its open questions, decisions and ADRs on cards Claude publishes, check the prototype against the vault with drift findings and a vault-first guard, and hand the answers back to be recorded in the vault first.",
   "author": {
     "name": "Marwan Saab",
     "url": "https://github.com/marwansaab"
@@ -62,6 +62,54 @@
       "title": "Selectable text",
       "description": "On the desktop, draw card and caption text so it can be selected and copied (links then show their address instead of opening)",
       "default": true
+    },
+    "validator": {
+      "type": "string",
+      "title": "Prototype validator",
+      "description": "The project's own check, run from the project root with the prototype folder added (e.g. node path/to/validate_prototype.js). Its ERROR and warn lines become findings. Empty: the desk's own checks only",
+      "default": ""
+    },
+    "validatorOffline": {
+      "type": "string",
+      "title": "Validator: without the record",
+      "description": "Arguments that run the validator without reading the record (shown as Run without the record). Empty: no such button",
+      "default": "--no-vault"
+    },
+    "vaultRoot": {
+      "type": "string",
+      "title": "Vault folder (read only)",
+      "description": "The vault on disk, read only: drift quotes are checked against its notes and the catalogue is fingerprinted. Empty: neither",
+      "default": ""
+    },
+    "autoValidate": {
+      "type": "boolean",
+      "title": "Check after Claude edits a prototype",
+      "description": "At the end of a turn that edited a prototype, run the checks and put what they find on the desk",
+      "default": true
+    },
+    "guardMode": {
+      "type": "string",
+      "title": "Vault-first guard",
+      "description": "When Claude edits prototype.js or a journey before writing the record in that turn: off, warn (Claude is reminded) or block (the edit is refused)",
+      "default": "warn"
+    },
+    "vaultWriteTools": {
+      "type": "string",
+      "title": "Record-writing tools",
+      "description": "A pattern for the tools that write the record; a call to one counts as the record written this turn",
+      "default": "obsidian.*__(write_note|append_note|prepend|patch_heading|patch_block|set_property|find_and_replace|create_base|move|rename|delete)$"
+    },
+    "valueWords": {
+      "type": "string",
+      "title": "Value-out wording",
+      "description": "A pattern for wording that suggests something of value leaves the product; each hit is a finding to read. Empty: not checked",
+      "default": "\\b(cash[ -]?out|redeem(ed|able)?|withdraw(al)?s? (your )?(chips|coins|winnings|balance)|win real|real[- ]money (prize|reward|payout)s?|gift ?cards?|sweepstakes?|convert (your )?(chips|coins))\\b"
+    },
+    "figurePattern": {
+      "type": "string",
+      "title": "Figures to label",
+      "description": "A pattern for prices and payouts; a journey that shows one and never says placeholder is flagged. Empty: not checked",
+      "default": "[$£€]\\s?\\d|\\b\\d+\\s?(coins?|chips?|gems?|credits?)\\b"
     },
     "questionPrefix": {
       "type": "string",
