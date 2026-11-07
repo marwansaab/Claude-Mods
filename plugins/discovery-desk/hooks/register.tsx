@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register as RegisterHooks, Timer } from 'claude-code'
 
-import type { Ask, DeskView, Draft, InitiativeSummary, Journey, Loaded, Notes, OpenWalk, Os, Raised, Response, Walk, WalkStatus, WalkSummary } from '../types'
+import type { Ask, CheckFinding, CheckRun, DeskView, Draft, InitiativeSummary, Journey, Loaded, Notes, OpenWalk, Os, Raised, Response, SourceMark, Walk, WalkStatus, WalkSummary } from '../types'
+import { deskChecks, hashOf, notePaths, readReport } from './checks'
 import { FILES, README, isWindowsPath, join, moveArgv, notesName, relTo, submittedAtOf } from './disk'
 import { DEFAULT_VOCAB, counts, nearestStep, nextQuestionId, readJourney, readRegister, stepsOn } from './prototype'
 import type { Vocab } from './prototype'
@@ -13,17 +14,21 @@ import {
   cleanWalk,
   emptyNotes,
   handOffPrompt,
+  journeySetPrompt,
   outcomeJson,
   outcomeMarkdown,
   phonePrompt,
   polishPrompt,
   raisedPrompt,
+  readNotesPrompt,
   readDraft,
   readNotes,
   readWalk,
+  scaffoldPrompt,
   summaryOf,
 } from './walk'
-import { homeView, initiativeView, journeyView, walkView } from './view'
+import { homeView, initiativeView, journeyView, newView, walkView } from './view'
+import { readLoop, readStory } from './hub'
 import type { Actions } from './view'
 
 const PANE = 'discovery-desk'
@@ -41,6 +46,9 @@ const START_VIEW: DeskView = {
   stepView: 'all',
   isContextOpen: false,
   isPlaying: false,
+  hubTab: 'journeys',
+  questionFilter: 'undecided',
+  isMapOpen: false,
   card: 0,
   part: {},
   isSummaryOpen: false,
@@ -56,6 +64,15 @@ const notesAtom = atom({ plugin: 'discovery-desk', key: 'notes' } as const, null
 const open = atom({ plugin: 'discovery-desk', key: 'open' } as const, null as OpenWalk | null)
 const typing = atom({ plugin: 'discovery-desk', key: 'typing' } as const, {} as Record<string, string>)
 const rootRef = atom({ plugin: 'discovery-desk', key: 'root' } as const, '')
+const checksAtom = atom({ plugin: 'discovery-desk', key: 'checks' } as const, {} as Record<string, CheckRun>)
+const dirty = atom({ plugin: 'discovery-desk', key: 'dirty' } as const, [] as string[])
+const recordWritten = atom({ plugin: 'discovery-desk', key: 'recordWritten' } as const, false)
+
+/** The obsidian-cli-mcp tools that write a note; a project with another record names its own in vaultWriteTools. */
+const VAULT_WRITES = 'obsidian.*__(write_note|append_note|prepend|patch_heading|patch_block|set_property|find_and_replace|create_base|move|rename|delete)$'
+const VALUE_WORDS = String.raw`\b(cash[ -]?out|redeem(ed|able)?|withdraw(al)?s? (your )?(chips|coins|winnings|balance)|win real|real[- ]money (prize|reward|payout)s?|gift ?cards?|sweepstakes?|convert (your )?(chips|coins))\b`
+const FIGURES = String.raw`[$£€]\s?\d|\b\d+\s?(coins?|chips?|gems?|credits?)\b`
+const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
 
 /** A field's address less its redraw counter (`ask:Q-1#2` is the question field of card Q-1). */
 const fieldKey = (key: string) => key.replace(/#\d+$/, '')
@@ -66,7 +83,26 @@ function viewOf(v: Partial<DeskView> | undefined): DeskView {
 }
 
 /** The person's settings: set by `register` on every load. */
-const cfg = { folder: 'Discovery', prototypeRoot: '', vault: '', defaultOs: 'ios' as Os, autoOpen: true, handOff: true, selectableText: true, vocab: DEFAULT_VOCAB as Vocab }
+const cfg = {
+  folder: 'Discovery',
+  prototypeRoot: '',
+  vault: '',
+  defaultOs: 'ios' as Os,
+  autoOpen: true,
+  handOff: true,
+  selectableText: true,
+  vocab: DEFAULT_VOCAB as Vocab,
+  validator: '',
+  validatorOffline: '--no-vault',
+  vaultRoot: '',
+  autoValidate: true,
+  guardMode: 'warn' as 'off' | 'warn' | 'block',
+  vaultWriteTools: new RegExp(VAULT_WRITES, 'i'),
+  valueWords: VALUE_WORDS,
+  figurePattern: FIGURES,
+  scaffold: '',
+  kitFolder: '',
+}
 
 /** The play timer: a module variable, so a reload stops playback (the view is reset to match on load). */
 let playTimer: Timer | undefined
@@ -145,7 +181,11 @@ async function readInitiative($: EngineInterface, folder: string): Promise<Loade
     const html = e.file ? await readText($, join(folder, ...e.file.split('/'))) : undefined
     journeys[e.code] = html === undefined ? { code: e.code, title: e.title, file: e.file, preconditions: [], storyMap: [], alsoInvolved: [], steps: [], problem: 'the page could not be read' } : readJourney(html, e)
   }
-  return { folder, rel: relTo(await $.session.root(), folder), register, journeys }
+  const hub = await readText($, join(folder, 'index.html'))
+  // The README sits beside the UX Prototype folder, or in the prototype folder itself.
+  const parent = /[\\/]UX Prototype$/i.test(folder) ? folder.replace(/[\\/]UX Prototype$/i, '') : folder
+  const readme = (await readText($, join(parent, 'README.md'))) ?? (await readText($, join(folder, 'README.md')))
+  return { folder, rel: relTo(await $.session.root(), folder), register, journeys, loop: hub ? readLoop(hub) : undefined, story: readme ? readStory(readme) : undefined }
 }
 
 /** The initiative a walk names: by register id, or by its folder name. */
@@ -156,6 +196,63 @@ async function findInitiative($: EngineInterface, name: string): Promise<Initiat
     l.find(i => i.id.toLowerCase() === wanted) ?? l.find(i => i.rel.toLowerCase() === wanted || i.rel.toLowerCase().split('/').includes(wanted))
   return match(list) ?? match(await scanInitiatives($))
 }
+
+/** The text of the files a prototype is made of, by their path in its folder. */
+async function prototypeFiles($: EngineInterface, l: Loaded): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  for (const path of ['prototype.js', ...l.register.journeys.map(j => j.file).filter(Boolean)]) {
+    const text = await readText($, join(l.folder, ...path.split('/')))
+    if (text !== undefined) out[path] = text
+  }
+  return out
+}
+
+/** A record note's text from the vault on disk (read only), or null when it is not there. */
+async function recordNote($: EngineInterface, ref: string): Promise<string | null> {
+  if (!cfg.vaultRoot) return null
+  for (const path of notePaths(ref)) {
+    const text = await readText($, join(cfg.vaultRoot, ...path.split('/')))
+    if (text !== undefined) return text
+  }
+  return null
+}
+
+/** Fingerprints of what a walk is built from: the register, its journeys' pages and the catalogue note. */
+async function sourcesFor($: EngineInterface, l: Loaded, journeys: string[]): Promise<SourceMark[]> {
+  const marks: SourceMark[] = []
+  const add = (path: string, label: string, text: string | undefined | null) => text != null && marks.push({ path, label, hash: hashOf(text) })
+  const register = join(l.folder, 'prototype.js')
+  add(register, 'prototype.js', await readText($, register))
+  for (const e of l.register.journeys.filter(j => !journeys.length || journeys.includes(j.code))) {
+    const path = join(l.folder, ...e.file.split('/'))
+    add(path, `the ${e.code} page`, await readText($, path))
+  }
+  const catalogue = l.register.initiative.catalogue
+  if (cfg.vaultRoot && catalogue) {
+    for (const rel of notePaths(catalogue)) {
+      const path = join(cfg.vaultRoot, ...rel.split('/'))
+      const text = await readText($, path)
+      if (text !== undefined) {
+        add(path, 'the catalogue', text)
+        break
+      }
+    }
+  }
+  return marks
+}
+
+/** The sources that changed (or went) since a walk was published. */
+async function staleOf($: EngineInterface, walk: Walk): Promise<string[]> {
+  const out: string[] = []
+  for (const s of walk.sources ?? []) {
+    const text = await readText($, s.path)
+    if (text === undefined || hashOf(text) !== s.hash) out.push(s.label)
+  }
+  return out
+}
+
+/** A command line split into words, double quotes keeping spaces. */
+const argvOf = (line: string) => [...line.matchAll(/"([^"]*)"|(\S+)/g)].map(m => m[1] ?? m[2] ?? '').filter(Boolean)
 
 // ---------- the desk folder ----------
 
@@ -215,7 +312,9 @@ async function refresh($: EngineInterface): Promise<void> {
   const waiting = list.filter(w => w.status === 'pending').length
   const current = (await read($, loaded))?.folder
   const focus = found.find(i => i.folder === current) ?? (found.length === 1 ? found[0] : undefined)
-  const parts = [waiting ? `${waiting} walk${waiting === 1 ? '' : 's'} waiting` : '', focus && !focus.problem ? `${focus.id || focus.name}: ${focus.open} open · ${focus.proposed} proposed` : '']
+  const run = focus ? (await read($, checksAtom))[focus.folder] : undefined
+  const checked = !run ? '' : run.problem ? ' · checks could not run' : run.errors ? ` · ✗ ${run.errors} error${run.errors === 1 ? '' : 's'}` : run.warnings ? ` · checks ⚠ ${run.warnings}` : ' · checks ✓'
+  const parts = [waiting ? `${waiting} walk${waiting === 1 ? '' : 's'} waiting` : '', focus && !focus.problem ? `${focus.id || focus.name}: ${focus.open} open · ${focus.proposed} proposed${checked}` : '']
   const text = parts.filter(Boolean).join(' · ')
   $.ui.status(text ? `${text} · /discovery` : undefined)
 }
@@ -427,12 +526,13 @@ async function submit($: EngineInterface): Promise<void> {
   await update($, view, (x): DeskView => ({ ...viewOf(x), screen: 'home', openId: undefined, openStatus: undefined, card: 0, part: {}, isConfirming: false }))
   await refresh($)
   $.ui.toast(cfg.handOff ? 'Walk submitted and handed to Claude' : 'Walk submitted')
-  if (cfg.handOff) await safely(() => $.prompt.submit({ text: handOffPrompt(current.walk, done) }))
+  if (cfg.handOff) await safely(() => $.prompt.submit({ text: handOffPrompt(current.walk, done, !!current.draft.isPlanOnly) }))
 }
 
 async function openWalk($: EngineInterface, status: WalkStatus, id: string): Promise<void> {
   const root = await rootOf($)
-  const got = await loadWalk($, root, status, id)
+  const loadedWalk = await loadWalk($, root, status, id)
+  const got = loadedWalk && status === 'pending' ? { ...loadedWalk, stale: await staleOf($, loadedWalk.walk) } : loadedWalk
   await update($, open, () => got ?? null)
   if (got) {
     const folder = join(await $.session.root(), ...got.walk.initiative.rel.split('/'))
@@ -464,6 +564,10 @@ async function moveTo($: EngineInterface, patch: (v: DeskView) => DeskView): Pro
 }
 
 async function commitField($: EngineInterface, key: string, text: string): Promise<void> {
+  if (key.startsWith('new:')) {
+    await update($, typing, t => ({ ...t, [key]: text }))
+    return
+  }
   await update($, typing, t => Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)))
   if (key.startsWith('ask:')) await ask($, text)
   else if (key.startsWith('t:')) await respond($, key.slice(2), { text })
@@ -541,10 +645,58 @@ function actionsFor($: EngineInterface): Actions {
       run(async () => {
         const l = await read($, loaded)
         if (!l) return
-        await $.prompt.submit({ text: phonePrompt(l, code, index, viewOf(await read($, view)).os) })
+        await $.prompt.submit({ text: phonePrompt(l, code, index, viewOf(await read($, view)).os, cfg.kitFolder) })
         $.ui.toast('Asked Claude to open it in the browser pane')
       }),
     sendRaised: () => run(() => sendRaised($)),
+    runChecks: isOffline =>
+      run(async () => {
+        const v = viewOf(await read($, view))
+        if (v.initiative) await runChecks($, v.initiative, { isOffline })
+      }),
+    hubTab: hubTab => run(() => moveTo($, v => ({ ...v, hubTab }))),
+    questionFilter: questionFilter => run(() => moveTo($, v => ({ ...v, questionFilter }))),
+    toggleMap: () => run(() => moveTo($, v => ({ ...v, isMapOpen: !v.isMapOpen }))),
+    planOnly: () => run(() => changeDraft($, d => ({ ...d, isPlanOnly: !d.isPlanOnly }))),
+    journeySet: () =>
+      run(async () => {
+        const l = await read($, loaded)
+        if (!l) return
+        await $.prompt.submit({ text: journeySetPrompt(l) })
+        $.ui.toast('Asked Claude to put the journey set up for review')
+      }),
+    readNotes: () =>
+      run(async () => {
+        const l = await read($, loaded)
+        if (!l) return
+        await $.prompt.submit({ text: readNotesPrompt(l) })
+        $.ui.toast('Asked Claude to put the discovery notes up to read')
+      }),
+    newInitiative: () =>
+      run(async () => {
+        stopPlay()
+        await moveTo($, v => ({ ...v, screen: 'new', isPlaying: false }))
+      }),
+    scaffold: () =>
+      run(async () => {
+        await flushTyping($)
+        const typed = await read($, typing)
+        const f = (k: string) => (typed[`new:${k}`] ?? '').trim()
+        if (!f('id') || !f('name')) return
+        await $.prompt.submit({ text: scaffoldPrompt({ id: f('id'), name: f('name'), storyMap: f('storyMap'), features: f('features'), pitch: f('pitch'), device: f('device') }, cfg.scaffold) })
+        await update($, typing, t => Object.fromEntries(Object.entries(t).filter(([k]) => !k.startsWith('new:'))))
+        await moveTo($, v => ({ ...v, screen: 'home' }))
+        $.ui.toast(`Asked Claude to scaffold ${f('id')}`)
+      }),
+    republish: () =>
+      run(async () => {
+        const current = await read($, open)
+        if (!current) return
+        await $.prompt.submit({
+          text: `The discovery desk walk "${current.walk.title}" (\`${current.walk.id}\`, ${current.walk.initiative.id}) was built from files that changed since: ${(current.stale ?? []).join(', ')}. Re-read them and the record, then publish the walk again with publish_walk under the same id; my answers for cards that keep their ids are kept.`,
+        })
+        $.ui.toast('Asked Claude to publish it again')
+      }),
     openWalk: (status, id) => run(() => openWalk($, status, id)),
     closeWalk: () => run(() => closeWalk($)),
     goCard: n => run(() => moveTo($, v => ({ ...v, card: Math.max(0, n), isConfirming: false, showAllAsks: false }))),
@@ -578,7 +730,7 @@ function actionsFor($: EngineInterface): Actions {
         const current = await read($, open)
         const v = viewOf(await read($, view))
         if (!current || !v.openId) return
-        await $.prompt.submit({ text: handOffPrompt(current.walk, join(await rootOf($), 'reviewed', v.openId, FILES.outcome)) })
+        await $.prompt.submit({ text: handOffPrompt(current.walk, join(await rootOf($), 'reviewed', v.openId, FILES.outcome), !!current.draft.isPlanOnly) })
         $.ui.toast('Outcome sent to Claude')
       }),
     copy: (text, surface) => run(() => copyText($, text, surface)),
@@ -596,8 +748,30 @@ async function publish($: EngineInterface, input: Record<string, unknown>) {
   const l = await readInitiative($, found.folder)
   if (!l) return { deny: `${found.rel}/prototype.js could not be read.` }
   const at = await nowIso($)
-  const { walk, problems, notes } = cleanWalk(input, at, { loaded: l, vocab: cfg.vocab })
+  const refs = (Array.isArray(input.cards) ? input.cards : [])
+    .map(c => (c && typeof c === 'object' && (c as { evidence?: { ref?: unknown } }).evidence?.ref) || undefined)
+    .filter((r): r is string => typeof r === 'string' && r.trim() !== '')
+  const record: Record<string, string | null> = {}
+  for (const ref of refs) record[ref] = await recordNote($, ref)
+  const { walk, problems, notes } = cleanWalk(input, at, { loaded: l, vocab: cfg.vocab, files: await prototypeFiles($, l), record, hasRecord: !!cfg.vaultRoot })
   if (!walk) return { deny: `The walk was not published. Fix these and call publish_walk again:\n- ${problems.join('\n- ')}` }
+  const { dir, kept } = await storeWalk($, { ...walk, sources: await sourcesFor($, l, walk.journeys) }, l, at)
+  const byType = walk.cards.reduce<Record<string, number>>((m, c) => ({ ...m, [c.type]: (m[c.type] ?? 0) + 1 }), {})
+  return {
+    result: [
+      `Published "${walk.title}" as ${walk.id} for ${walk.initiative.id}: ${walk.cards.length} cards (${Object.entries(byType).map(([t, n]) => `${n} ${t}`).join(', ')}), saved in ${dir}.`,
+      kept ? `Kept ${kept} of the owner's earlier answers for cards with the same ids.` : '',
+      notes.length ? `Note: ${notes.join('; ')}.` : '',
+      walk.cards.some(c => c.type === 'finding' && c.isRecordUnchecked) ? 'The record quotes were not checked: the desk has no vaultRoot set.' : '',
+      'The owner walks it in the discovery desk panel (/discovery). Do not repeat its questions in chat. When the owner submits, a prompt points you at the outcome; until then, carry on or end your turn.',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  }
+}
+
+/** Writes a walk to pending/, keeping the owner's answers for cards still there, and opens it unless another is open. */
+async function storeWalk($: EngineInterface, walk: Walk, l: Loaded, at: string, isOpening = cfg.autoOpen): Promise<{ dir: string; kept: number }> {
   const root = await rootOf($)
   const readme = join(root, 'README.md')
   if (!(await $.fs.exists(readme))) await $.fs.write(readme, README)
@@ -613,7 +787,7 @@ async function publish($: EngineInterface, input: Record<string, unknown>) {
     const n = await readNotesFor($, l.register.initiative.id || l.rel)
     await update($, notesAtom, () => n)
     await refresh($)
-    if (!cfg.autoOpen) return
+    if (!isOpening) return
     const v = viewOf(await read($, view))
     if (v.screen === 'walk' && v.openId && v.openId !== walk.id) return
     const keep = v.openId === walk.id
@@ -622,18 +796,73 @@ async function publish($: EngineInterface, input: Record<string, unknown>) {
     await update($, view, (x): DeskView => ({ ...viewOf(x), screen: 'walk', initiative: l.folder, openId: walk.id, openStatus: 'pending', isPlaying: false, isSummaryOpen: !!walk.summary && !keep, card: keep ? viewOf(x).card : 0, part: keep ? viewOf(x).part : {} }))
     await $.ui.open({ id: PANE, title: PANE_TITLE })
   })
-  const byType = walk.cards.reduce<Record<string, number>>((m, c) => ({ ...m, [c.type]: (m[c.type] ?? 0) + 1 }), {})
-  return {
-    result: [
-      `Published "${walk.title}" as ${walk.id} for ${walk.initiative.id}: ${walk.cards.length} cards (${Object.entries(byType).map(([t, n]) => `${n} ${t}`).join(', ')}), saved in ${dir}.`,
-      kept ? `Kept ${kept} of the owner's earlier answers for cards with the same ids.` : '',
-      notes.length ? `Note: ${notes.join('; ')}.` : '',
-      'The owner walks it in the discovery desk panel (/discovery). Do not repeat its questions in chat. When the owner submits, a prompt points you at the outcome; until then, carry on or end your turn.',
-    ]
-      .filter(Boolean)
-      .join('\n'),
-  }
+  return { dir, kept }
 }
+
+// ---------- checks ----------
+
+/**
+ * Runs the desk's own checks and the project's validator on a prototype. What they find goes on the desk as
+ * one walk of finding cards (`<initiative>-checks`, replaced on each run, answers kept); a clean run says so.
+ */
+async function runChecks($: EngineInterface, folder: string, options: { isOffline?: boolean; isQuiet?: boolean } = {}): Promise<CheckRun | undefined> {
+  const l = await readInitiative($, folder)
+  if (!l) return undefined
+  const at = await nowIso($)
+  const found: CheckFinding[] = deskChecks(l, { valueWords: cfg.valueWords, figurePattern: cfg.figurePattern })
+  let ranValidator = false
+  let problem: string | undefined
+  if (cfg.validator) {
+    const argv = [...argvOf(cfg.validator), folder, ...(options.isOffline ? argvOf(cfg.validatorOffline) : [])]
+    const run = await $.process.run(argv, { cwd: await $.session.root(), timeoutMs: 120_000 }).catch((err: unknown) => ({ exitCode: -1, stdout: '', stderr: err instanceof Error ? err.message : String(err) }))
+    const report = readReport(run.stdout)
+    if (run.exitCode === 0 || run.exitCode === 1 || report.length) {
+      ranValidator = true
+      found.push(...report)
+    } else problem = `the validator did not run (${(run.stderr || `exit ${run.exitCode}`).trim().split('\n')[0]?.slice(0, 120)})`
+  }
+  const result: CheckRun = { at, errors: found.filter(f => f.severity === 'high').length, warnings: found.filter(f => f.severity !== 'high').length, ranValidator, problem }
+  await update($, checksAtom, c => ({ ...c, [folder]: result }))
+  if (found.length) {
+    const id = l.register.initiative.id || 'prototype'
+    const { walk } = cleanWalk(
+      {
+        id: `${id}-checks`,
+        title: `Checks for ${id} ${l.register.initiative.name}`,
+        label: 'Checks',
+        origin: ranValidator ? 'the desk and the project validator' : 'the desk',
+        summary: `${result.errors} error${result.errors === 1 ? '' : 's'} and ${result.warnings} warning${result.warnings === 1 ? '' : 's'}${options.isOffline ? ', without the record' : ''}. Accept what should be fixed, reject what is fine as it is. Drift is fixed toward the record.`,
+        cards: found.map(f => ({ type: 'finding', id: f.id, title: f.title, body: f.body, severity: f.severity, kind: 'check', where: f.where, quote: f.quote })),
+      },
+      at,
+      { loaded: l, vocab: cfg.vocab },
+    )
+    if (walk) {
+      const cards = walk.cards.map(c => (c.type === 'finding' ? { ...c, kind: found.find(f => f.id === c.id)?.isDrift ? ('drift' as const) : ('check' as const) } : c))
+      await storeWalk($, { ...walk, cards, sources: await sourcesFor($, l, []) }, l, at, !options.isQuiet)
+    }
+  }
+  await safely(() => refresh($))
+  if (!options.isQuiet) $.ui.toast(problem ? `Checks: ${problem}` : found.length ? `Checks found ${result.errors} errors and ${result.warnings} warnings` : 'Every check passes')
+  return result
+}
+
+/** The prototype folder a file belongs to, among the initiatives the desk knows, and whether it is the register or a page. */
+async function prototypeOf($: EngineInterface, path: string): Promise<{ folder: string; isMirror: boolean } | undefined> {
+  const p = path.replace(/\\/g, '/').toLowerCase()
+  for (const i of await read($, initiatives)) {
+    const f = i.folder.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')
+    if (!p.startsWith(`${f}/`)) continue
+    const rest = p.slice(f.length + 1)
+    return { folder: i.folder, isMirror: rest === 'prototype.js' || rest.startsWith('journeys/') }
+  }
+  return undefined
+}
+
+const isUnder = (path: string, root: string) => !!root && path.replace(/\\/g, '/').toLowerCase().startsWith(`${root.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')}/`)
+
+const GUARD_TEXT =
+  'The discovery desk\'s vault-first rule: the record is written before the prototype that mirrors it. This turn has written nothing to the record yet. If this change mirrors an answer, record the answer first; if it fixes drift toward the record, say so to the owner.'
 
 async function answerQuestion($: EngineInterface, input: Record<string, unknown>) {
   const walkId = typeof input.walk === 'string' ? input.walk.trim() : ''
@@ -726,6 +955,20 @@ export const register: RegisterHooks = (on, options) => {
   cfg.autoOpen = options.autoOpen !== false
   cfg.handOff = options.handOff !== false
   cfg.selectableText = options.selectableText !== false
+  cfg.validator = text(options.validator, '')
+  cfg.validatorOffline = typeof options.validatorOffline === 'string' ? options.validatorOffline.trim() : '--no-vault'
+  cfg.vaultRoot = text(options.vaultRoot, '').replace(/[\\/]+$/, '')
+  cfg.autoValidate = options.autoValidate !== false
+  cfg.guardMode = options.guardMode === 'off' || options.guardMode === 'block' ? options.guardMode : 'warn'
+  try {
+    cfg.vaultWriteTools = new RegExp(text(options.vaultWriteTools, VAULT_WRITES), 'i')
+  } catch {
+    cfg.vaultWriteTools = new RegExp(VAULT_WRITES, 'i')
+  }
+  cfg.valueWords = typeof options.valueWords === 'string' ? options.valueWords : VALUE_WORDS
+  cfg.figurePattern = typeof options.figurePattern === 'string' ? options.figurePattern : FIGURES
+  cfg.scaffold = text(options.scaffold, '')
+  cfg.kitFolder = text(options.kitFolder, '').replace(/[\\/]+$/, '')
   cfg.vocab = {
     q: text(options.questionPrefix, DEFAULT_VOCAB.q),
     d: text(options.decisionPrefix, DEFAULT_VOCAB.d),
@@ -759,6 +1002,39 @@ export const register: RegisterHooks = (on, options) => {
   on('tool.call', { tool: LIST_TOOL }, async $ => listForClaude($)).catch(($, e, next) => next(e))
   on('tool.call', { tool: ANSWER_TOOL }, async ($, e) => answerQuestion($, e as unknown as Record<string, unknown>)).catch(($, e, next) => next(e))
 
+  // Every tool call: notes a write to the record, guards the prototype (vault first), and marks it for checking.
+  on('tool.call', async ($, e, next) => {
+    const call = e as unknown as { tool?: string; file_path?: unknown; notebook_path?: unknown }
+    const tool = String(call.tool ?? '')
+    const path = typeof call.file_path === 'string' ? call.file_path : typeof call.notebook_path === 'string' ? call.notebook_path : ''
+    const isEdit = EDIT_TOOLS.has(tool) && !!path
+    const target = isEdit ? await safely(() => prototypeOf($, path)) : undefined
+    if (cfg.vaultWriteTools.test(tool) || (isEdit && isUnder(path, cfg.vaultRoot))) await safely(() => update($, recordWritten, () => true))
+    const isGuarded = !!target?.isMirror && cfg.guardMode !== 'off' && !(await safely(() => read($, recordWritten)))
+    if (isGuarded && cfg.guardMode === 'block') return { deny: `${GUARD_TEXT} The desk's guard is set to block (setting guardMode); ask the owner to set it to warn for a change that only mirrors the record.` }
+    const result = await next(e)
+    if (target) await safely(() => update($, dirty, d => (d.includes(target.folder) ? d : [...d, target.folder])))
+    if (isGuarded && 'result' in result && result.result !== undefined) return { ...result, context: [...(result.context ?? []), GUARD_TEXT] }
+    return result
+  }).catch(($, e, next) => next(e))
+
+  // At the end of a turn: check the prototypes it edited, and start the next turn's record count afresh.
+  // A subagent's turn ends inside the main one, so only the main turn's end counts.
+  on('turn.complete', async ($, e, next) => {
+    const done = await next(e)
+    if ((e as { agentId?: string }).agentId) return done
+    await safely(async () => {
+      const folders = await read($, dirty)
+      await update($, dirty, () => [])
+      await update($, recordWritten, () => false)
+      if (cfg.autoValidate) for (const folder of folders) {
+        const run = await runChecks($, folder, { isQuiet: true })
+        if (run && (run.errors || run.problem)) $.ui.toast(`${run.problem ? `Checks could not run: ${run.problem}` : `${run.errors} error${run.errors === 1 ? '' : 's'} in the prototype after these edits`}: see /discovery`)
+      }
+    })
+    return done
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
     const v = viewOf(await read($, view))
@@ -776,11 +1052,16 @@ export const register: RegisterHooks = (on, options) => {
       folder: cfg.folder,
       selectable: cfg.selectableText,
       vocab: cfg.vocab,
+      checks: await read($, checksAtom),
+      hasValidator: !!cfg.validator,
+      hasOffline: !!cfg.validatorOffline,
+      form: Object.fromEntries(Object.entries(await read($, typing)).filter(([k]) => k.startsWith('new:')).map(([k, v]) => [k.slice(4), v])),
     }
     try {
       if (v.screen === 'walk') return walkView(ctx)
       if (v.screen === 'journey') return journeyView(ctx)
       if (v.screen === 'initiative') return initiativeView(ctx)
+      if (v.screen === 'new') return newView(ctx)
       return homeView(ctx)
     } catch (err) {
       const { Box, Text, Button } = ui
