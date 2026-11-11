@@ -128,10 +128,10 @@ In the desktop app the pane also opens by itself the first time a session uses a
 
 ## Settings
 
-Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/settings.json`:
+Set them in `/config`. To set them in `~/.claude/settings.json` instead, put them under `pluginConfigs`, keyed `session-lens@claude-mods` for the mod installed from this marketplace, or `session-lens` for one loaded with `--plugin-dir`:
 
 ```json
-{ "pluginConfigs": { "session-lens": { "options": { "autoOpen": true, "crewBand": true, "showQuips": true, "hidePlanRows": true } } } }
+{ "pluginConfigs": { "session-lens@claude-mods": { "options": { "autoOpen": true, "crewBand": true, "showQuips": true, "hidePlanRows": true } } } }
 ```
 
 | Setting | Default | Effect |

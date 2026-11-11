@@ -32,7 +32,7 @@ Inside a mod:
    - `## What it does`: the features. Anything mod-specific (a cast of characters, a pane's controls, hints) is a `###` subsection here, not a heading of its own.
    - `## Install`: the `/plugin install <mod> --marketplace marwansaab/Claude-Mods` line, and anything to do before or after (a mod it replaces, a reload).
    - `## Commands`: a `| Command | Does |` table, tools for Claude included.
-   - `## Settings`: where to set them (`/config`, or `pluginConfigs` in `~/.claude/settings.json`, with a JSON example), then a `| Setting | Default | Effect |` table keyed by the `userConfig` key.
+   - `## Settings`: where to set them (`/config`, or `pluginConfigs` in `~/.claude/settings.json`, with a JSON example keyed `<mod>@claude-mods`, the key an installed mod reads; a mod loaded with `--plugin-dir` reads plain `<mod>`), then a `| Setting | Default | Effect |` table keyed by the `userConfig` key.
    - `## How it works`: the hooks and state, briefly.
    - `## Known limits`.
    - `## Credits` when the mod draws on someone else's work, then `## Licence`: MIT, linking the root `LICENSE`.
