@@ -75,10 +75,10 @@ Answer `y` to add the marketplace and choose a scope. Then type `/ms-crab-crew`,
 
 ## Settings
 
-Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/settings.json`:
+Set them in `/config`. To set them in `~/.claude/settings.json` instead, put them under `pluginConfigs`, keyed `crab-crew@claude-mods` for the mod installed from this marketplace, or `crab-crew` for one loaded with `--plugin-dir`:
 
 ```json
-{ "pluginConfigs": { "crab-crew": { "options": { "autoOpen": false, "showQuips": true } } } }
+{ "pluginConfigs": { "crab-crew@claude-mods": { "options": { "autoOpen": false, "showQuips": true } } } }
 ```
 
 | Setting | Default | Effect |

@@ -69,10 +69,10 @@ To start, ask Claude something like *"put the open questions for this initiative
 
 ## Settings
 
-Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/settings.json`:
+Set them in `/config`. To set them in `~/.claude/settings.json` instead, put them under `pluginConfigs`, keyed `review-desk@claude-mods` for the mod installed from this marketplace, or `review-desk` for one loaded with `--plugin-dir`:
 
 ```json
-{ "pluginConfigs": { "review-desk": { "options": { "folder": "Reviews", "autoOpen": true, "handOff": true, "selectableText": true, "fontSize": "normal" } } } }
+{ "pluginConfigs": { "review-desk@claude-mods": { "options": { "folder": "Reviews", "autoOpen": true, "handOff": true, "selectableText": true, "fontSize": "normal" } } } }
 ```
 
 | Setting | Default | Effect |

@@ -50,10 +50,10 @@ Answer `y` to add the marketplace, then choose a scope.
 
 ## Settings
 
-Set them in `/config` or on the board. For a mod loaded with `--plugin-dir`, set them in `~/.claude/settings.json`:
+Set them in `/config` or on the board. To set them in `~/.claude/settings.json` instead, put them under `pluginConfigs`, keyed `crew-dispatch@claude-mods` for the mod installed from this marketplace, or `crew-dispatch` for one loaded with `--plugin-dir`:
 
 ```json
-{ "pluginConfigs": { "crew-dispatch": { "options": { "exploreModel": "haiku", "exploreEffort": "low", "planEffort": "high", "namedTypes": "review-desk:reviewer=sonnet:high" } } } }
+{ "pluginConfigs": { "crew-dispatch@claude-mods": { "options": { "exploreModel": "haiku", "exploreEffort": "low", "planEffort": "high", "namedTypes": "review-desk:reviewer=sonnet:high" } } } }
 ```
 
 | Setting | Default | Effect |

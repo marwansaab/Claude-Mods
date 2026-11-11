@@ -49,10 +49,10 @@ Answer `y` to add the marketplace, then choose a scope.
 
 ## Settings
 
-Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/settings.json`:
+Set them in `/config`. To set them in `~/.claude/settings.json` instead, put them under `pluginConfigs`, keyed `obsidian-cli-mcp-tool-stats@claude-mods` for the mod installed from this marketplace, or `obsidian-cli-mcp-tool-stats` for one loaded with `--plugin-dir`:
 
 ```json
-{ "pluginConfigs": { "obsidian-cli-mcp-tool-stats": { "options": { "server": "obsidian-cli-mcp", "heavyResultTokens": 2000, "slowCallMs": 3000, "keepHistory": true } } } }
+{ "pluginConfigs": { "obsidian-cli-mcp-tool-stats@claude-mods": { "options": { "server": "obsidian-cli-mcp", "heavyResultTokens": 2000, "slowCallMs": 3000, "keepHistory": true } } } }
 ```
 
 | Setting | Default | Effect |
