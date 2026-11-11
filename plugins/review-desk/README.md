@@ -1,6 +1,6 @@
 # review-desk
 
-A review desk inside Claude Code. When Claude needs you to answer questions, approve decisions, accept or reject findings, approve a write plan, walk through an explainer or read a long text, it puts the work on the desk. You open the panel (`/reviews`), work through the cards, ask questions as you go and submit. Claude gets the outcome back and applies it.
+A review desk inside Claude Code. When Claude needs you to answer questions, approve decisions, accept or reject findings, approve a write plan, walk through an explainer or read a long text, it puts the work on the desk. You open the panel (`/ms-review-desk`), work through the cards, ask questions as you go and submit. Claude gets the outcome back and applies it.
 
 There are no HTML pages to build, no browser to open and no notes to export and paste back. It is made for projects that pair a Claude project folder with a record of truth, such as an Obsidian vault, but it works in any project.
 
@@ -60,7 +60,7 @@ Answer `y` to add the marketplace, then choose a scope. A mod installed this way
 
 | Command | Does |
 | --- | --- |
-| `/reviews` | Opens the review desk, or closes it when it is open |
+| `/ms-review-desk` | Opens the review desk, or closes it when it is open |
 | `publish_review` (tool for Claude) | Puts a review on the desk. Claude is told to use it instead of building HTML review pages or asking many questions in chat |
 | `list_reviews` (tool for Claude) | Lists pending and submitted reviews, with the path of each outcome |
 | `answer_question` (tool for Claude) | Puts Claude's answer to a question you sent from a card back on that card, with its sources |

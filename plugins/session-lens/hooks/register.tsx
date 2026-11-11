@@ -24,7 +24,7 @@ import { bandView, paneView } from './view'
 const PLUGIN = 'session-lens'
 const PANE = PLUGIN
 const TITLE = 'Session lens'
-const COMMAND = 'lens'
+const COMMAND = 'ms-session-lens'
 /** Store keys: the layout kept across sessions, and whether the person closed the pane last. */
 const LAYOUT_KEY = 'layout'
 const CLOSED_KEY = 'paneClosed'
@@ -307,7 +307,7 @@ export const register: Register = (on, options) => {
     await safely(async () => {
       if (!agentId) return setCaptain($, true, 'think', '')
       const at = await $.clock.now()
-      await touchCrab($, agentId, () => ({ activity: 'think', detail: '', lastActiveAt: at }))
+      await touchCrab($, agentId, m => ({ activity: 'think', detail: '', lastActiveAt: at, effort: e.effort === undefined ? m.effort : String(e.effort) }))
     })
     const result = yield* next(e)
     // Each answered request of the main conversation moves the context meter.

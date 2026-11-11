@@ -278,7 +278,7 @@ describe('rows that fly', () => {
 // What stands for the engine's session start beneath the mod.
 const startSession = async ($: Engine, on: On) => {
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('command.register', () => ({ value: { command: 'lens' } }))
+  on('command.register', () => ({ value: { command: 'ms-session-lens' } }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 }
 
@@ -449,7 +449,7 @@ describe('the kept layout', () => {
     expect(parseLayout(undefined)).toEqual(DEFAULT_LAYOUT)
   })
 
-  test('closing the pane with /lens is remembered; opening it again forgets it', async ($, on) => {
+  test('closing the pane with /ms-session-lens is remembered; opening it again forgets it', async ($, on) => {
     mock.clock(on, { now: 1_000 })
     const kept = keptStore(on)
     let isOpen = true
@@ -463,9 +463,9 @@ describe('the kept layout', () => {
     })
     on('ui.panes', () => ({ value: isOpen ? [{ id: 'session-lens', title: 'Session lens', isShown: true, isFocused: false, isPlaced: true }] : [] }))
     await startSession($, on)
-    await $.command.run({ command: 'lens', args: '' } as never)
+    await $.command.run({ command: 'ms-session-lens', args: '' } as never)
     expect(kept.paneClosed).toBe(true)
-    await $.command.run({ command: 'lens', args: '' } as never)
+    await $.command.run({ command: 'ms-session-lens', args: '' } as never)
     expect(kept.paneClosed).toBe(false)
   })
 })
@@ -653,6 +653,8 @@ describe('the crew', () => {
     expect(crabMeta(pip, 35_000)).toBe('Haiku 4.5 · searching loadConfig · waiting 0:31 · 4 calls · 61k tok')
     const wren = crabOf('b', 'Wren', 'scout', { status: 'done', startedAt: 1_000, endedAt: 89_000, model: 'claude-haiku-4-5', toolCalls: 11, tokens: 140_000 })
     expect(crabMeta(wren, 100_000)).toBe('1:28 · Haiku 4.5 · 11 calls · 140k tok')
+    // The effort its last request was sent with, beside its model.
+    expect(crabMeta({ ...wren, effort: 'low' }, 100_000)).toBe('1:28 · Haiku 4.5 · low · 11 calls · 140k tok')
   })
 
   test('the race’s totals beside each list’s title: how many, how the runs ended, calls, tokens and time', async () => {
@@ -786,6 +788,28 @@ const spawner = ($: Engine, on: On) => {
       fork: false,
     })
 }
+
+describe('a crab’s effort', () => {
+  test('each request of a subagent notes the effort it was sent with; a model without effort keeps the last', async ($, on) => {
+    mock.clock(on, { now: 10_000 })
+    mock.store(on)
+    const spawn = spawner($, on)
+    on('turn.step', async function* (_, e) {
+      return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+    })
+    const step = async (effort?: 'low' | 'high') => {
+      const s = $.turn.step({ turnId: 't', index: 0, model: 'claude-haiku-4-5', messageCount: 1, agentId: 'agent-t1', ...(effort ? { effort } : {}) })
+      for await (const _ of s) void _
+      await s.result
+    }
+    await spawn('t1', 'Explore', 'Find the config loader')
+    await step('low')
+    await step()
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect(await shows(ui, /Haiku 4\.5 · low/)).toBe(true)
+    await ui.unmount()
+  })
+})
 
 describe('the session’s own events', () => {
   test('a /clear starts the counts and the crew over, and keeps the layout', async ($, on) => {

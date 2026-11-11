@@ -1,7 +1,7 @@
 {
   "name": "obsidian-cli-mcp-tool-stats",
-  "version": "0.1.0",
-  "description": "Usage stats for the obsidian-cli-mcp server (/cli-mcp-tool-stats): calls, estimated tokens, errors and latency per tool, with hints on heavy results, repeat calls, error patterns and unused schemas, kept across sessions.",
+  "version": "0.2.0",
+  "description": "Usage stats for the obsidian-cli-mcp server (/ms-obsidian-cli-mcp-tool-stats): calls, estimated tokens, errors and latency per tool, with hints on heavy results, repeat calls, error patterns and unused schemas, kept across sessions.",
   "author": {
     "name": "Marwan Saab",
     "url": "https://github.com/marwansaab"

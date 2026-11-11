@@ -105,7 +105,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({
-      name: 'crew',
+      name: 'ms-crab-crew',
       description: 'Show or hide the Crab Crew: every subagent as a crab with a role, animated by its status and progress',
     })
 
@@ -121,7 +121,7 @@ export const register: Register = (on, options) => {
     return started
   })
 
-  on('command.run', { command: 'crew' }, async $ => {
+  on('command.run', { command: 'ms-crab-crew' }, async $ => {
     const isOpen = await togglePane($)
     return { text: isOpen ? 'All hands on deck: the Crab Crew is up.' : 'Crab Crew stood down.' }
   })

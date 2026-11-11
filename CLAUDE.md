@@ -51,6 +51,7 @@ Inside a mod:
 - **Keep drawing state in `$.state`**, declared in `types/index.d.ts`; module variables reset on every reload. Never write state from a `ui.render` hook.
 - **Draw for both the terminal and the desktop.** Check `e.surface` / `'Svg' in ui`, and give every `Svg` a meaningful `alt`. Test on `['terminal', 'desktop']`.
 - **Respect `prefers-reduced-motion`** in every animated SVG.
+- **Name a mod's command `/ms-<mod>`** (`ms-` for Marwan Saab, then the mod's folder name, e.g. `/ms-session-lens`), so every command from this repository is found by typing `/ms-`. Command names take letters, digits, `_` and `-` only, so a `name:` prefix is not possible.
 - **Depend on nothing implicit.** A mod works with the standard agents and tools; if it needs another plugin, list it under `dependencies`.
 - **Bump `version` (semver)** in `plugin.json` with every user-visible change; installed copies update only on a new version.
 - **Never commit secrets, tokens, personal data, machine paths or employer material.** Screenshots must not show private repositories, file paths or conversation content.

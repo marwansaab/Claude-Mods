@@ -29,7 +29,7 @@ import {
 } from './stats'
 
 const PLUGIN = 'obsidian-cli-mcp-tool-stats'
-const COMMAND = 'cli-mcp-tool-stats'
+const COMMAND = 'ms-obsidian-cli-mcp-tool-stats'
 const PANE = PLUGIN
 const STORE_KEY = 'history'
 

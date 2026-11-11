@@ -1,7 +1,7 @@
 {
   "name": "crab-crew",
-  "version": "0.1.0",
-  "description": "A crew panel for standard subagents (/crew): each agent type is a crab character with its own role, look and lines, animated by its status and progress.",
+  "version": "0.2.0",
+  "description": "A crew panel for standard subagents (/ms-crab-crew): each agent type is a crab character with its own role, look and lines, animated by its status and progress.",
   "author": {
     "name": "Marwan Saab",
     "url": "https://github.com/marwansaab"
