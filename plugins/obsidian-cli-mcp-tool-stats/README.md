@@ -42,10 +42,10 @@ Answer `y` to add the marketplace, then choose a scope.
 
 | Command | Does |
 | --- | --- |
-| `/cli-mcp-tool-stats` | Opens the stats pane, or closes it when it is open |
-| `/cli-mcp-tool-stats report` | Writes the full report into the conversation as Markdown, so Claude can read it and act on it |
-| `/cli-mcp-tool-stats reset` | Starts this session's figures over; what was counted so far stays in the history |
-| `/cli-mcp-tool-stats forget` | Clears the history of earlier sessions |
+| `/ms-obsidian-cli-mcp-tool-stats` | Opens the stats pane, or closes it when it is open |
+| `/ms-obsidian-cli-mcp-tool-stats report` | Writes the full report into the conversation as Markdown, so Claude can read it and act on it |
+| `/ms-obsidian-cli-mcp-tool-stats reset` | Starts this session's figures over; what was counted so far stays in the history |
+| `/ms-obsidian-cli-mcp-tool-stats forget` | Clears the history of earlier sessions |
 
 ## Settings
 

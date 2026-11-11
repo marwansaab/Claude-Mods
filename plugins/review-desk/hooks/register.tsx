@@ -198,7 +198,7 @@ async function refresh($: EngineInterface): Promise<PackSummary[]> {
   const list = await listPacks($, root)
   await update($, packs, () => list)
   const waiting = list.filter(p => p.status === 'pending').length
-  $.ui.status(waiting ? `${waiting} to review · /reviews` : undefined)
+  $.ui.status(waiting ? `${waiting} to review · /ms-review-desk` : undefined)
   return list
 }
 
@@ -438,10 +438,10 @@ async function setUp($: EngineInterface): Promise<void> {
         }),
     ],
     [
-      'the /reviews command',
+      'the /ms-review-desk command',
       () =>
         $.command.register({
-          name: 'reviews',
+          name: 'ms-review-desk',
           description: 'Open the review desk: reviews waiting for you (questions, decisions, findings, plans, explainers, read-throughs) and the ones you submitted',
         }),
     ],
@@ -492,7 +492,7 @@ async function publish($: EngineInterface, input: Record<string, unknown>) {
     result: [
       `Published "${pack.title}" as ${pack.id}: ${pack.cards.length} cards (${counts}), saved in ${path}.`,
       kept ? `Kept ${kept} of the owner's earlier answers for cards with the same ids.` : '',
-      'The owner reviews it in the review desk panel (/reviews). Do not also build an HTML page for it, and do not repeat its questions in chat. When the owner submits, a prompt points you at the outcome; until then, carry on or end your turn.',
+      'The owner reviews it in the review desk panel (/ms-review-desk). Do not also build an HTML page for it, and do not repeat its questions in chat. When the owner submits, a prompt points you at the outcome; until then, carry on or end your turn.',
     ]
       .filter(Boolean)
       .join('\n'),
@@ -557,7 +557,7 @@ export const register: Register = (on, options) => {
     return started
   })
 
-  on('command.run', { command: 'reviews' }, async $ => {
+  on('command.run', { command: 'ms-review-desk' }, async $ => {
     const isOpen = (await $.ui.panes()).some(p => p.id === PANE)
     if (isOpen) {
       await $.ui.close({ id: PANE })

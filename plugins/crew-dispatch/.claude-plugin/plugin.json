@@ -1,0 +1,231 @@
+{
+  "name": "crew-dispatch",
+  "version": "0.1.0",
+  "description": "A dispatch board (/ms-crew-dispatch) that routes subagents to a model and an effort by agent type, from a table you set in /config or on the board, and lists what each subagent of the session ran on and why.",
+  "author": {
+    "name": "Marwan Saab",
+    "url": "https://github.com/marwansaab"
+  },
+  "homepage": "https://github.com/marwansaab/Claude-Mods/tree/main/plugins/crew-dispatch",
+  "repository": "https://github.com/marwansaab/Claude-Mods",
+  "license": "MIT",
+  "keywords": [
+    "subagents",
+    "model",
+    "effort",
+    "routing",
+    "dispatch",
+    "panel"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "routing": {
+      "type": "boolean",
+      "title": "Routing",
+      "description": "Apply the table to new subagents. Off, every subagent runs as it would without the mod; your rows are kept and the board still lists each dispatch",
+      "default": true
+    },
+    "generalPurposeModel": {
+      "type": "string",
+      "title": "general-purpose model",
+      "description": "The model a general-purpose subagent runs on when Claude names none: auto keeps its definition's, inherit takes the parent's",
+      "options": [
+        "auto",
+        "inherit",
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable"
+      ],
+      "default": "auto"
+    },
+    "generalPurposeEffort": {
+      "type": "string",
+      "title": "general-purpose effort",
+      "description": "How hard a general-purpose subagent thinks: auto keeps its definition's or the session's",
+      "options": [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "auto"
+    },
+    "claudeModel": {
+      "type": "string",
+      "title": "claude model",
+      "description": "The model a claude subagent runs on when Claude names none: auto keeps its definition's, inherit takes the parent's",
+      "options": [
+        "auto",
+        "inherit",
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable"
+      ],
+      "default": "auto"
+    },
+    "claudeEffort": {
+      "type": "string",
+      "title": "claude effort",
+      "description": "How hard a claude subagent thinks: auto keeps its definition's or the session's",
+      "options": [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "auto"
+    },
+    "exploreModel": {
+      "type": "string",
+      "title": "Explore model",
+      "description": "The model a Explore subagent runs on when Claude names none: auto keeps its definition's, inherit takes the parent's",
+      "options": [
+        "auto",
+        "inherit",
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable"
+      ],
+      "default": "auto"
+    },
+    "exploreEffort": {
+      "type": "string",
+      "title": "Explore effort",
+      "description": "How hard a Explore subagent thinks: auto keeps its definition's or the session's",
+      "options": [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "auto"
+    },
+    "planModel": {
+      "type": "string",
+      "title": "Plan model",
+      "description": "The model a Plan subagent runs on when Claude names none: auto keeps its definition's, inherit takes the parent's",
+      "options": [
+        "auto",
+        "inherit",
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable"
+      ],
+      "default": "auto"
+    },
+    "planEffort": {
+      "type": "string",
+      "title": "Plan effort",
+      "description": "How hard a Plan subagent thinks: auto keeps its definition's or the session's",
+      "options": [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "auto"
+    },
+    "guideModel": {
+      "type": "string",
+      "title": "claude-code-guide model",
+      "description": "The model a claude-code-guide subagent runs on when Claude names none: auto keeps its definition's, inherit takes the parent's",
+      "options": [
+        "auto",
+        "inherit",
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable"
+      ],
+      "default": "auto"
+    },
+    "guideEffort": {
+      "type": "string",
+      "title": "claude-code-guide effort",
+      "description": "How hard a claude-code-guide subagent thinks: auto keeps its definition's or the session's",
+      "options": [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "auto"
+    },
+    "statuslineModel": {
+      "type": "string",
+      "title": "statusline-setup model",
+      "description": "The model a statusline-setup subagent runs on when Claude names none: auto keeps its definition's, inherit takes the parent's",
+      "options": [
+        "auto",
+        "inherit",
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable"
+      ],
+      "default": "auto"
+    },
+    "statuslineEffort": {
+      "type": "string",
+      "title": "statusline-setup effort",
+      "description": "How hard a statusline-setup subagent thinks: auto keeps its definition's or the session's",
+      "options": [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "auto"
+    },
+    "otherModel": {
+      "type": "string",
+      "title": "any other type model",
+      "description": "The model a any other type subagent runs on when Claude names none: auto keeps its definition's, inherit takes the parent's",
+      "options": [
+        "auto",
+        "inherit",
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable"
+      ],
+      "default": "auto"
+    },
+    "otherEffort": {
+      "type": "string",
+      "title": "any other type effort",
+      "description": "How hard a any other type subagent thinks: auto keeps its definition's or the session's",
+      "options": [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "auto"
+    },
+    "namedTypes": {
+      "type": "string",
+      "title": "Named types",
+      "description": "Rows for other agent types, as type=model:effort, comma-separated (review-desk:reviewer=sonnet:high). A field left out follows the any-other-type row",
+      "default": ""
+    }
+  }
+}

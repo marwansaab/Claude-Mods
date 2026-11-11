@@ -9,9 +9,10 @@ This repository is also a plugin marketplace, so you can install any mod with on
 | Mod | What it does |
 | --- | --- |
 | [crab-crew](plugins/crab-crew) | A crew panel for subagents. Each agent type is played by a crab character with its own role, look and lines, animated by its status and progress. Works with the standard agents; no skills needed. |
+| [crew-dispatch](plugins/crew-dispatch) | A routing table for subagents (`/ms-crew-dispatch`): the model and effort each agent type gets, set in `/config` or on a dispatch board that also lists what each subagent ran on and why. Claude's own model choice stands; nothing changes until you pick a row. |
 | [obsidian-cli-mcp-tool-stats](plugins/obsidian-cli-mcp-tool-stats) | Usage stats for the [obsidian-cli-mcp](https://github.com/marwansaab/obsidian-cli-mcp) server: calls, estimated tokens, errors and latency per tool, with hints on heavy results, repeat calls, error patterns and unused schemas. Kept across sessions. |
 | [review-desk](plugins/review-desk) | A review desk panel. Claude publishes open questions, decisions, findings, write plans, animated explainers and read-throughs; you answer, ask questions and submit inside Claude Code, and the outcome goes back to Claude to apply. |
-| [session-lens](plugins/session-lens) | A pane for the session in hand (`/lens`): how full the context window is, Claude's to-do list, its subagents as a crew of animated crabs walking a beach, and the skills and tools it used, each section folding on its own. A crew band above the prompt shows the subagents' progress. Tools are grouped by MCP server or listed flat, sorted and filtered. **Replaces crab-crew:** disable or don't install crab-crew alongside it. |
+| [session-lens](plugins/session-lens) | A pane for the session in hand (`/ms-session-lens`): how full the context window is, Claude's to-do list, its subagents as a crew of animated crabs walking a beach, and the skills and tools it used, each section folding on its own. A crew band above the prompt shows the subagents' progress. Tools are grouped by MCP server or listed flat, sorted and filtered. **Replaces crab-crew:** disable or don't install crab-crew alongside it. |
 
 ## Install
 

@@ -8,7 +8,7 @@ It works with the **standard agents** (`general-purpose`, `Explore`, `Plan` and 
 
 ## What it does
 
-- **The crew panel** (`/crew` toggles it). At the top is *Captain Clawd*, the main thread: at the helm while Claude works, asleep when it waits for you. Under the captain is one row per subagent:
+- **The crew panel** (`/ms-crab-crew` toggles it). At the top is *Captain Clawd*, the main thread: at the helm while Claude works, asleep when it waits for you. Under the captain is one row per subagent:
   - who it is (*Pip the Scout*), its task, model, current action, tool calls, tokens and time;
   - a speech bubble in character (*"Land ho? Hunting config.ts"*), or a thought bubble while it thinks;
   - a beach lane on which the crab walks toward its flag as the work progresses, leaving footprints behind it.
@@ -65,13 +65,13 @@ At the prompt of a Claude Code terminal session:
 /plugin install crab-crew --marketplace marwansaab/Claude-Mods
 ```
 
-Answer `y` to add the marketplace and choose a scope. Then type `/crew`, or just let Claude dispatch an agent.
+Answer `y` to add the marketplace and choose a scope. Then type `/ms-crab-crew`, or just let Claude dispatch an agent.
 
 ## Commands
 
 | Command | Does |
 | --- | --- |
-| `/crew` | Shows or hides the crew panel. |
+| `/ms-crab-crew` | Shows or hides the crew panel. |
 
 ## Settings
 
@@ -83,7 +83,7 @@ Set them in `/config`, or for a mod loaded with `--plugin-dir`, in `~/.claude/se
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `autoOpen` | `true` | Opens the panel the first time a subagent starts in a session. In a narrow terminal (under 144 columns) a pane that opens by itself waits until there is room; `/crew` always opens it. |
+| `autoOpen` | `true` | Opens the panel the first time a subagent starts in a session. In a narrow terminal (under 144 columns) a pane that opens by itself waits until there is room; `/ms-crab-crew` always opens it. |
 | `showQuips` | `true` | Speech bubbles and lines in character. Off, the rows keep only the plain facts. |
 
 ## How it works

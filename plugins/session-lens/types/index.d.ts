@@ -92,6 +92,8 @@ export type LensCrab = {
   errors: number
   /** The model it runs on, as the engine names it (`claude-haiku-4-5`); each request may update it. */
   model?: string
+  /** The effort its last request was sent with, as its `turn.step` saw it; absent for a model without effort. */
+  effort?: string
   /** Tokens its requests used: input, output and cache reads and writes, summed over every request. */
   tokens?: number
   /** Model requests it made. */

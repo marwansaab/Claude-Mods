@@ -11,22 +11,27 @@
     {
       "name": "crab-crew",
       "source": "./plugins/crab-crew",
-      "description": "A crew panel for standard subagents (/crew): each agent type is a crab character with its own role, look and lines, animated by its status and progress."
+      "description": "A crew panel for standard subagents (/ms-crab-crew): each agent type is a crab character with its own role, look and lines, animated by its status and progress."
+    },
+    {
+      "name": "crew-dispatch",
+      "source": "./plugins/crew-dispatch",
+      "description": "A dispatch board (/ms-crew-dispatch) that routes subagents to a model and an effort by agent type, from a table you set in /config or on the board, and lists what each subagent of the session ran on and why."
     },
     {
       "name": "obsidian-cli-mcp-tool-stats",
       "source": "./plugins/obsidian-cli-mcp-tool-stats",
-      "description": "Usage stats for the obsidian-cli-mcp server (/cli-mcp-tool-stats): calls, estimated tokens, errors and latency per tool, with hints on heavy results, repeat calls, error patterns and unused schemas, kept across sessions."
+      "description": "Usage stats for the obsidian-cli-mcp server (/ms-obsidian-cli-mcp-tool-stats): calls, estimated tokens, errors and latency per tool, with hints on heavy results, repeat calls, error patterns and unused schemas, kept across sessions."
     },
     {
       "name": "review-desk",
       "source": "./plugins/review-desk",
-      "description": "A review desk panel (/reviews): Claude publishes open questions, decisions, findings, write plans, animated explainers and read-throughs; you answer, ask and submit in the panel, and the outcome goes back to Claude."
+      "description": "A review desk panel (/ms-review-desk): Claude publishes open questions, decisions, findings, write plans, animated explainers and read-throughs; you answer, ask and submit in the panel, and the outcome goes back to Claude."
     },
     {
       "name": "session-lens",
       "source": "./plugins/session-lens",
-      "description": "A session lens pane (/lens): how full the context window is, Claude's to-do list, its crew of subagents as animated crabs with a progress band above the prompt, and the skills and tools this session used, each section folding on its own. Replaces crab-crew: disable or don't install crab-crew alongside it."
+      "description": "A session lens pane (/ms-session-lens): how full the context window is, Claude's to-do list, its crew of subagents as animated crabs with a progress band above the prompt, and the skills and tools this session used, each section folding on its own. Replaces crab-crew: disable or don't install crab-crew alongside it."
     }
   ]
 }
