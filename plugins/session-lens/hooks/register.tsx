@@ -307,7 +307,7 @@ export const register: Register = (on, options) => {
     await safely(async () => {
       if (!agentId) return setCaptain($, true, 'think', '')
       const at = await $.clock.now()
-      await touchCrab($, agentId, m => ({ activity: 'think', detail: '', lastActiveAt: at, effort: e.effort === undefined ? m.effort : String(e.effort) }))
+      await touchCrab($, agentId, () => ({ activity: 'think', detail: '', lastActiveAt: at }))
     })
     const result = yield* next(e)
     // Each answered request of the main conversation moves the context meter.

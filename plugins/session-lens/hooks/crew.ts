@@ -235,7 +235,6 @@ export function crabMeta(m: LensCrab, now: number, action = m.status === 'runnin
   return [
     m.status === 'running' ? '' : duration((m.endedAt ?? now) - m.startedAt),
     modelName(m.model),
-    m.effort ?? '',
     action,
     calls(m.toolCalls),
     m.errors ? `${m.errors} failed` : '',

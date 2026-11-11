@@ -40,7 +40,7 @@ At the prompt of a Claude Code terminal session:
 /plugin install crew-dispatch --marketplace marwansaab/Claude-Mods
 ```
 
-Answer `y` to add the marketplace, then choose a scope. To see each crab's effort beside its model, install [session-lens](../session-lens) 0.7.0 or later alongside it.
+Answer `y` to add the marketplace, then choose a scope.
 
 ## Commands
 
@@ -85,7 +85,7 @@ Model settings take `auto`, `inherit`, `haiku`, `sonnet`, `opus` or `fable`. Eff
 - The fallback covers a model the engine refuses when the subagent starts. A model that starts but then fails on its first request is not retried; that request fails as it would without the mod.
 - On models that take effort per message, a new level counts from the subagent's next request with new input, not from one that only returns tool results.
 - A number of the effort budget is not offered: public builds don't send one.
-- session-lens shows a crab's effort as its `turn.step` hook sees it. When session-lens's hook runs before this mod's, it shows the level from before routing.
+- The effort a request finally goes out with can't be checked from outside: the engine logs no change of effort, and the response doesn't report one. The board shows the level this mod passed on. A mod whose `turn.step` hook runs before this one's (session-lens's does) sees the level from before routing, which is why session-lens shows no effort.
 - The board keeps the session's 60 latest subagents.
 - Built on Claude Code's function-hook plugin API (early access), tested against Claude Code 2.1.319.
 
