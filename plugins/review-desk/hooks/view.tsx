@@ -192,10 +192,15 @@ export function homeView(ctx: Ctx): RenderElement {
     const kinds = p.types.map(t => TYPE_LABEL[t].toLowerCase()).join(', ')
     return (
       <Box key={`row-${p.status}-${p.id}`} flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
-        <Button key={`open-${p.status}-${p.id}`} plain onPress={() => act.openPack(p.status, p.id)}>
-          {p.title}
-          <Text dimColor> ›</Text>
-        </Button>
+        {/* A Button draws one line, so the title wraps beside it and the Button stays short. */}
+        <Box flexDirection="row" justifyContent="space-between" gap={1}>
+          <Box flexShrink={1}>
+            <Text bold wrap="wrap">
+              {p.title}
+            </Text>
+          </Box>
+          <Button key={`open-${p.status}-${p.id}`} plain label="Open ›" onPress={() => act.openPack(p.status, p.id)} />
+        </Box>
         <Text color={isDone ? '#66BB6A' : undefined} dimColor={!isDone} wrap="truncate-end">
           {progress}
         </Text>
