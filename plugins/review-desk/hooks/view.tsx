@@ -251,18 +251,33 @@ function evidence(ui: UI, ids: string[] | undefined, claims: Claim[] | undefined
   )
 }
 
-/** A list of choices, one per line; the one picked is filled. */
+/** Text under a pressable row, indented past its glyph: a Button draws one line, so long words go here, wrapped. */
+function under(ui: Ctx['ui'], key: string, text: string | undefined): RenderElement | null {
+  const { Box, Text } = ui
+  if (!text) return null
+  return (
+    <Box key={key} paddingLeft={3}>
+      <Text dimColor wrap="wrap">
+        {text}
+      </Text>
+    </Box>
+  )
+}
+
+/** A list of choices, one per line; the one picked is filled. Each description wraps beneath its choice. */
 function choices(ctx: Ctx, cardId: string, picked: string | undefined, list: { id: string; label: string; detail?: string; isTip?: boolean }[]): RenderElement {
   const { Box, Button, Text } = ctx.ui
   return (
     <Box flexDirection="column">
       {list.map(o => (
-        <Button key={`choice-${cardId}-${o.id}`} plain onPress={() => ctx.act.respond(cardId, { choice: picked === o.id ? undefined : o.id })}>
-          {picked === o.id ? '◉  ' : '○  '}
-          {o.label}
-          {o.isTip ? <Text color="#66BB6A"> ★ recommended</Text> : ''}
-          {o.detail ? <Text dimColor> · {o.detail}</Text> : ''}
-        </Button>
+        <Box key={`choice-box-${cardId}-${o.id}`} flexDirection="column">
+          <Button key={`choice-${cardId}-${o.id}`} plain onPress={() => ctx.act.respond(cardId, { choice: picked === o.id ? undefined : o.id })}>
+            {picked === o.id ? '◉  ' : '○  '}
+            {o.label}
+            {o.isTip ? <Text color="#66BB6A"> ★ recommended</Text> : ''}
+          </Button>
+          {under(ctx.ui, `choice-detail-${cardId}-${o.id}`, o.detail)}
+        </Box>
       ))}
     </Box>
   )
@@ -371,7 +386,7 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
       return {
         content: col(
           `c-${card.id}`,
-          <Text key={`fm-${card.id}`} wrap="truncate-end">
+          <Text key={`fm-${card.id}`} wrap="wrap">
             {card.severity ? (
               <Text color={SEVERITY_COLOR[card.severity]} bold>
                 {card.severity.toUpperCase()}
@@ -413,12 +428,7 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
         <Box key={`pr-${card.id}`} flexDirection="column">
           {card.rows.map(row => {
             const isOn = rowIsOn(r, row.id) && (isPending || r?.choice !== 'cancel')
-            const inner = [
-              isOn ? '☑  ' : '☐  ',
-              <Text bold>{row.action}</Text>,
-              ` ${row.target}`,
-              row.summary ? <Text dimColor> · {row.summary}</Text> : '',
-            ]
+            const inner = [isOn ? '☑  ' : '☐  ', <Text bold>{row.action}</Text>, ` ${row.target}`]
             const comment = note(row.id)
             return (
               <Box key={`row-${card.id}-${row.id}`} flexDirection="column">
@@ -429,6 +439,7 @@ function cardParts(ctx: Ctx, card: Card): { content: RenderElement; answer: Rend
                 ) : (
                   <Text>{inner}</Text>
                 )}
+                {under(ui, `row-summary-${card.id}-${row.id}`, row.summary)}
                 {comment && (
                   <Text dimColor italic>
                     {'     ↳ '}
@@ -737,7 +748,7 @@ export function packView(ctx: Ctx): RenderElement {
           <Text bold size={titleSize(ctx)}>
             {pack.title}
           </Text>
-          <Text dimColor wrap="truncate-end">
+          <Text dimColor wrap="wrap">
             {isDesktop ? meta : `${answered} of ${n} answered · ${meta}`}
           </Text>
         </Box>
